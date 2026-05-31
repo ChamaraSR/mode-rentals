@@ -19,6 +19,7 @@ const Color cGreenDark = Color(0xFF14532D);
 const Color cGreenLight = Color(0xFFDCFCE7);
 const Color cGreenBorder = Color(0xFF86EFAC);
 const Color cRed = Color(0xFFDC2626);
+const Color cRedDark = Color(0xFFB91C1C);
 const Color cRedLight = Color(0xFFFCA5A5);
 const Color cRedBg = Color(0x1FEF4444);
 const Color cRedBorder = Color(0x4DEF4444);
@@ -27,6 +28,9 @@ const Color cAmberText = Color(0xFF92400E);
 const Color cVioletLight = Color(0xFFEDE9FE);
 const Color cVioletText = Color(0xFF4C1D95);
 const Color cGreenText = Color(0xFF166534);
+const Color cBlue = Color(0xFF1D4ED8);
+const Color cBlueMid = Color(0xFF1E40AF);
+const Color cBlueLight = Color(0xFFEFF6FF);
 
 // ─── User Model ────────────────────────────────────────────
 class AppUser {
@@ -74,7 +78,6 @@ class _ModeRentalsAppState extends State<ModeRentalsApp> {
       role: 'Staff',
     ),
   ];
-
   String screen = 'login';
   AppUser? currentUser;
 
@@ -95,131 +98,186 @@ class _ModeRentalsAppState extends State<ModeRentalsApp> {
   void addUser(AppUser u) => setState(() => users.add(u));
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mode Rentals',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        fontFamily: 'SF Pro Display',
-        scaffoldBackgroundColor: cSlate,
-        colorScheme: ColorScheme.fromSeed(seedColor: cIndigo),
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Mode Rentals',
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      fontFamily: 'SF Pro Display',
+      scaffoldBackgroundColor: cSlate,
+      colorScheme: ColorScheme.fromSeed(seedColor: cIndigo),
+    ),
+    home: Scaffold(
+      backgroundColor: cSlate,
+      body: SafeArea(
+        child: switch (screen) {
+          'forgot' => ForgotScreen(onBack: goLogin),
+          'staff' => StaffHome(user: currentUser!, onLogout: logout),
+          'manager' => ManagerHome(
+            user: currentUser!,
+            users: users,
+            onLogout: logout,
+          ),
+          'admin' => AdminHome(
+            user: currentUser!,
+            users: users,
+            onAddUser: addUser,
+            onLogout: logout,
+          ),
+          _ => LoginScreen(users: users, onLogin: login, onForgot: goForgot),
+        },
       ),
-      home: Scaffold(
-        backgroundColor: cSlate,
-        body: SafeArea(
-          child: switch (screen) {
-            'forgot' => ForgotScreen(onBack: goLogin),
-            'staff' => StaffHome(user: currentUser!, onLogout: logout),
-            'manager' => ManagerHome(
-              user: currentUser!,
-              users: users,
-              onLogout: logout,
-            ),
-            'admin' => AdminHome(
-              user: currentUser!,
-              users: users,
-              onAddUser: addUser,
-              onLogout: logout,
-            ),
-            _ => LoginScreen(users: users, onLogin: login, onForgot: goForgot),
-          },
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
 
 // ─── App Header ────────────────────────────────────────────
 class AppHeader extends StatelessWidget {
   final VoidCallback? onLogout;
   const AppHeader({super.key, this.onLogout});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 14),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [cNavyMid, cNavy],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(16, 12, 12, 14),
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [cNavyMid, cNavy],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 22,
-            height: 3,
-            decoration: BoxDecoration(
-              color: const Color(0xFF818CF8),
-              borderRadius: BorderRadius.circular(2),
-            ),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 22,
+          height: 3,
+          decoration: BoxDecoration(
+            color: const Color(0xFF818CF8),
+            borderRadius: BorderRadius.circular(2),
           ),
-          const SizedBox(width: 6),
-          const Text(
-            'mode',
+        ),
+        const SizedBox(width: 6),
+        const Text(
+          'mode',
+          style: TextStyle(
+            color: Color(0xFF818CF8),
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(width: 2),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'TM',
             style: TextStyle(
               color: Color(0xFF818CF8),
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.5,
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(width: 2),
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text(
-              'TM',
-              style: TextStyle(
-                color: Color(0xFF818CF8),
-                fontSize: 8,
-                fontWeight: FontWeight.w700,
+        ),
+        const Spacer(),
+        if (onLogout != null)
+          GestureDetector(
+            onTap: onLogout,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: cRedBg,
+                border: Border.all(color: cRedBorder),
+                borderRadius: BorderRadius.circular(8),
               ),
-            ),
-          ),
-          const Spacer(),
-          if (onLogout != null)
-            GestureDetector(
-              onTap: onLogout,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: cRedBg,
-                  border: Border.all(color: cRedBorder),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.logout_rounded, color: cRedLight, size: 14),
-                    SizedBox(width: 5),
-                    Text(
-                      'Sign Out',
-                      style: TextStyle(
-                        color: cRedLight,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.logout_rounded, color: cRedLight, size: 14),
+                  SizedBox(width: 5),
+                  Text(
+                    'Sign Out',
+                    style: TextStyle(
+                      color: cRedLight,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-        ],
+          ),
+      ],
+    ),
+  );
+}
+
+// ─── Coloured Page Header (for sub-screens) ───────────────
+class PageHeader extends StatelessWidget {
+  final String title, subtitle;
+  final Color bgColor;
+  final VoidCallback onBack;
+  const PageHeader({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.bgColor,
+    required this.onBack,
+  });
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [bgColor, bgColor.withOpacity(0.8)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
       ),
-    );
-  }
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: onBack,
+          child: const Row(
+            children: [
+              Icon(
+                Icons.arrow_back_ios_rounded,
+                color: Colors.white70,
+                size: 14,
+              ),
+              SizedBox(width: 4),
+              Text(
+                'Back',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 22,
+          ),
+        ),
+        Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+      ],
+    ),
+  );
 }
 
 // ─── Shared Widgets ────────────────────────────────────────
-
 class RoleBadge extends StatelessWidget {
   final String role;
   const RoleBadge(this.role, {super.key});
-
   @override
   Widget build(BuildContext context) {
     final styles = {
@@ -261,7 +319,6 @@ class StyledInput extends StatelessWidget {
   final bool obscure;
   final Widget? suffix;
   final TextInputType keyboard;
-
   const StyledInput({
     super.key,
     required this.hint,
@@ -270,66 +327,55 @@ class StyledInput extends StatelessWidget {
     this.suffix,
     this.keyboard = TextInputType.text,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: cBorder),
-        boxShadow: [
-          BoxShadow(
-            color: cNavy.withOpacity(0.06),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-          BoxShadow(
-            color: Colors.white.withOpacity(0.8),
-            blurRadius: 0,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: TextField(
-        controller: ctrl,
-        obscureText: obscure,
-        keyboardType: keyboard,
-        style: const TextStyle(fontSize: 14, color: cText),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: const TextStyle(color: cMuted, fontSize: 14),
-          suffixIcon: suffix,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-          border: InputBorder.none,
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: cBorder),
+      boxShadow: [
+        BoxShadow(
+          color: cNavy.withOpacity(0.06),
+          blurRadius: 4,
+          offset: const Offset(0, 2),
         ),
+      ],
+    ),
+    child: TextField(
+      controller: ctrl,
+      obscureText: obscure,
+      keyboardType: keyboard,
+      style: const TextStyle(fontSize: 14, color: cText),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: cMuted, fontSize: 14),
+        suffixIcon: suffix,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        border: InputBorder.none,
       ),
-    );
-  }
+    ),
+  );
 }
 
 class InputLabel extends StatelessWidget {
   final String text;
   const InputLabel(this.text, {super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 5),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF475569),
-        ),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 5),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF475569),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class PrimaryButton extends StatelessWidget {
@@ -337,7 +383,6 @@ class PrimaryButton extends StatelessWidget {
   final VoidCallback onTap;
   final List<Color> colors;
   final Color shadowColor;
-
   const PrimaryButton({
     super.key,
     required this.label,
@@ -345,128 +390,117 @@ class PrimaryButton extends StatelessWidget {
     this.colors = const [Color(0xFF312E81), cIndigo],
     this.shadowColor = cIndigoDark,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: colors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: colors.last.withOpacity(0.45),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: shadowColor,
-              blurRadius: 0,
-              offset: const Offset(0, 3),
-            ),
-          ],
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            fontSize: 15,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: colors.last.withOpacity(0.45),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 0,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 15,
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class ErrorBox extends StatelessWidget {
   final String msg;
   const ErrorBox(this.msg, {super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFDECEA),
-        border: Border.all(color: cRed.withOpacity(0.4)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.warning_amber_rounded, color: cRed, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(msg, style: const TextStyle(color: cRed, fontSize: 12)),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFDECEA),
+      border: Border.all(color: cRed.withOpacity(0.4)),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.warning_amber_rounded, color: cRed, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(msg, style: const TextStyle(color: cRed, fontSize: 12)),
+        ),
+      ],
+    ),
+  );
 }
 
 class SuccessBox extends StatelessWidget {
   final String msg;
   const SuccessBox(this.msg, {super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: cGreenLight,
-        border: Border.all(color: cGreenBorder),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle_outline, color: cGreen, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              msg,
-              style: const TextStyle(color: cGreenText, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-Widget raisedCard({required Widget child, double radius = 12}) {
-  return Container(
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(radius),
-      border: Border.all(color: cBorder),
-      boxShadow: [
-        BoxShadow(
-          color: cNavy.withOpacity(0.07),
-          blurRadius: 8,
-          offset: const Offset(0, 3),
-        ),
-        const BoxShadow(color: cBorder, blurRadius: 0, offset: Offset(0, 3)),
-        BoxShadow(
-          color: Colors.white.withOpacity(0.9),
-          blurRadius: 0,
-          offset: const Offset(0, 1),
+      color: cGreenLight,
+      border: Border.all(color: cGreenBorder),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.check_circle_outline, color: cGreen, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            msg,
+            style: const TextStyle(color: cGreenText, fontSize: 12),
+          ),
         ),
       ],
     ),
-    child: child,
   );
 }
+
+Widget raisedCard({required Widget child, double radius = 12}) => Container(
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(radius),
+    border: Border.all(color: cBorder),
+    boxShadow: [
+      BoxShadow(
+        color: cNavy.withOpacity(0.07),
+        blurRadius: 8,
+        offset: const Offset(0, 3),
+      ),
+      const BoxShadow(color: cBorder, blurRadius: 0, offset: Offset(0, 3)),
+      BoxShadow(
+        color: Colors.white.withOpacity(0.9),
+        blurRadius: 0,
+        offset: const Offset(0, 1),
+      ),
+    ],
+  ),
+  child: child,
+);
 
 class StatCard extends StatelessWidget {
   final IconData icon;
@@ -478,120 +512,122 @@ class StatCard extends StatelessWidget {
     required this.label,
     required this.value,
   });
-
   @override
-  Widget build(BuildContext context) {
-    return raisedCard(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: cSlate,
-                borderRadius: BorderRadius.circular(10),
+  Widget build(BuildContext context) => raisedCard(
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: cSlate,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: cNavyMid, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$value',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 22,
+                  color: cNavyMid,
+                ),
               ),
-              child: Icon(icon, color: cNavyMid, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$value',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 22,
-                    color: cNavyMid,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 11, color: cMuted),
-                ),
-              ],
-            ),
-          ],
-        ),
+              Text(label, style: const TextStyle(fontSize: 11, color: cMuted)),
+            ],
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 class UserRow extends StatelessWidget {
   final AppUser u;
   final bool showRole;
   const UserRow({super.key, required this.u, this.showRole = false});
-
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: raisedCard(
-        radius: 10,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF312E81), cIndigo],
-                  ),
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: cIndigo.withOpacity(0.35),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    child: raisedCard(
+      radius: 10,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF312E81), cIndigo],
                 ),
-                child: Center(
-                  child: Text(
-                    u.name[0].toUpperCase(),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: cIndigo.withOpacity(0.35),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  u.name[0].toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    u.name,
                     style: const TextStyle(
-                      color: Colors.white,
                       fontWeight: FontWeight.w700,
-                      fontSize: 14,
+                      fontSize: 13,
+                      color: cText,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
+                  Text(
+                    u.email,
+                    style: const TextStyle(fontSize: 11, color: cMuted),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      u.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: cText,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      u.email,
-                      style: const TextStyle(fontSize: 11, color: cMuted),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              if (showRole) ...[const SizedBox(width: 6), RoleBadge(u.role)],
-            ],
-          ),
+            ),
+            if (showRole) ...[const SizedBox(width: 6), RoleBadge(u.role)],
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
 }
+
+Widget _bgGradient({required Widget child}) => Container(
+  decoration: const BoxDecoration(
+    gradient: LinearGradient(
+      colors: [cSlate, cSlate2],
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+    ),
+  ),
+  child: child,
+);
 
 // ─── LOGIN ─────────────────────────────────────────────────
 class LoginScreen extends StatefulWidget {
@@ -604,7 +640,6 @@ class LoginScreen extends StatefulWidget {
     required this.onLogin,
     required this.onForgot,
   });
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -614,7 +649,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final pCtrl = TextEditingController();
   bool showPw = false;
   String err = '';
-
   String? _validate() {
     if (eCtrl.text.trim().isEmpty) return 'Email is required.';
     if (!RegExp(r'^[\w.-]+@[\w.-]+\.\w+$').hasMatch(eCtrl.text.trim()))
@@ -641,119 +675,104 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const AppHeader(),
-        Expanded(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [cSlate, cSlate2],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [cNavyMid, cNavyLight],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+  Widget build(BuildContext context) => Column(
+    children: [
+      const AppHeader(),
+      Expanded(
+        child: _bgGradient(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 76,
+                  height: 76,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [cNavyMid, cNavyLight],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: cNavy.withOpacity(0.4),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: cNavy.withOpacity(0.4),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                        BoxShadow(
-                          color: Colors.white.withOpacity(0.1),
-                          blurRadius: 0,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                    child: const Center(
-                      child: Text('🚗', style: TextStyle(fontSize: 38)),
-                    ),
+                    ],
                   ),
-                  const SizedBox(height: 22),
-                  const Text(
-                    'Welcome to Mode',
+                  child: const Center(
+                    child: Text('🚗', style: TextStyle(fontSize: 38)),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                const Text(
+                  'Welcome to Mode',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 24,
+                    color: cText,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Sign in to your account',
+                  style: TextStyle(color: cMuted, fontSize: 14),
+                ),
+                const SizedBox(height: 28),
+                StyledInput(
+                  hint: 'Email address',
+                  ctrl: eCtrl,
+                  keyboard: TextInputType.emailAddress,
+                ),
+                StyledInput(
+                  hint: 'Password',
+                  ctrl: pCtrl,
+                  obscure: !showPw,
+                  suffix: IconButton(
+                    icon: Icon(
+                      showPw ? Icons.visibility_off : Icons.visibility,
+                      color: cMuted,
+                      size: 20,
+                    ),
+                    onPressed: () => setState(() => showPw = !showPw),
+                  ),
+                ),
+                if (err.isNotEmpty) ErrorBox(err),
+                PrimaryButton(label: 'Sign in', onTap: _login),
+                const SizedBox(height: 16),
+                GestureDetector(
+                  onTap: widget.onForgot,
+                  child: const Text(
+                    'Forgot password?',
                     style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 24,
-                      color: cText,
+                      color: cPurple,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      decoration: TextDecoration.underline,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Sign in to your account',
-                    style: TextStyle(color: cMuted, fontSize: 14),
-                  ),
-                  const SizedBox(height: 28),
-                  StyledInput(
-                    hint: 'Email address',
-                    ctrl: eCtrl,
-                    keyboard: TextInputType.emailAddress,
-                  ),
-                  StyledInput(
-                    hint: 'Password',
-                    ctrl: pCtrl,
-                    obscure: !showPw,
-                    suffix: IconButton(
-                      icon: Icon(
-                        showPw ? Icons.visibility_off : Icons.visibility,
-                        color: cMuted,
-                        size: 20,
-                      ),
-                      onPressed: () => setState(() => showPw = !showPw),
-                    ),
-                  ),
-                  if (err.isNotEmpty) ErrorBox(err),
-                  PrimaryButton(label: 'Sign in', onTap: _login),
-                  const SizedBox(height: 16),
-                  GestureDetector(
-                    onTap: widget.onForgot,
-                    child: const Text(
-                      'Forgot password?',
-                      style: TextStyle(
-                        color: cPurple,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  const Text(
-                    'Secured · Privacy Act 2020 compliant',
-                    style: TextStyle(color: cMuted, fontSize: 11),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'Secured · Privacy Act 2020 compliant',
+                  style: TextStyle(color: cMuted, fontSize: 11),
+                ),
+              ],
             ),
           ),
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
 }
 
 // ─── FORGOT PASSWORD ───────────────────────────────────────
 class ForgotScreen extends StatefulWidget {
   final VoidCallback onBack;
   const ForgotScreen({super.key, required this.onBack});
-
   @override
   State<ForgotScreen> createState() => _ForgotScreenState();
 }
@@ -762,7 +781,6 @@ class _ForgotScreenState extends State<ForgotScreen> {
   final ctrl = TextEditingController();
   bool sent = false;
   String err = '';
-
   void _send() {
     final e = ctrl.text.trim();
     if (e.isEmpty) {
@@ -780,141 +798,290 @@ class _ForgotScreenState extends State<ForgotScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const AppHeader(),
-        Expanded(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [cSlate, cSlate2],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextButton.icon(
-                    onPressed: widget.onBack,
-                    icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                    label: const Text(
-                      'Back to Sign in',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+  Widget build(BuildContext context) => Column(
+    children: [
+      const AppHeader(),
+      Expanded(
+        child: _bgGradient(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextButton.icon(
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                  label: const Text(
+                    'Back to Sign in',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: cPurple,
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [cNavyMid, cNavyLight],
                     ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: cPurple,
-                      padding: EdgeInsets.zero,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: cNavy.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.lock_reset_rounded,
+                      color: Color(0xFF818CF8),
+                      size: 26,
                     ),
                   ),
-                  const SizedBox(height: 20),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Reset Password',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                    color: cText,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "Enter your email and we'll send you a reset link.",
+                  style: TextStyle(color: cMuted, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                if (!sent) ...[
+                  const InputLabel('Email Address'),
+                  StyledInput(
+                    hint: 'Your email address',
+                    ctrl: ctrl,
+                    keyboard: TextInputType.emailAddress,
+                  ),
+                  if (err.isNotEmpty) ErrorBox(err),
+                  PrimaryButton(
+                    label: 'Send Reset Link',
+                    onTap: _send,
+                    colors: [cPurple, const Color(0xFF4F46E5)],
+                    shadowColor: const Color(0xFF3730A3),
+                  ),
+                ] else
                   Container(
-                    width: 52,
-                    height: 52,
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [cNavyMid, cNavyLight],
-                      ),
+                      color: cGreenLight,
+                      border: Border.all(color: cGreenBorder),
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color: cNavy.withOpacity(0.3),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: cGreen.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(26),
+                          ),
+                          child: const Icon(
+                            Icons.mark_email_read_rounded,
+                            color: cGreen,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Reset link sent!',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: cGreenText,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Check ${ctrl.text.trim()} for your password reset link.',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: cGreenText,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        PrimaryButton(
+                          label: 'Back to Sign in',
+                          onTap: widget.onBack,
+                          colors: [cGreen, const Color(0xFF15803D)],
+                          shadowColor: cGreenDark,
                         ),
                       ],
                     ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.lock_reset_rounded,
-                        color: Color(0xFF818CF8),
-                        size: 26,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+// ─── STAFF HOME (Tile Menu) ────────────────────────────────
+class StaffHome extends StatefulWidget {
+  final AppUser user;
+  final VoidCallback onLogout;
+  const StaffHome({super.key, required this.user, required this.onLogout});
+  @override
+  State<StaffHome> createState() => _StaffHomeState();
+}
+
+class _StaffHomeState extends State<StaffHome> {
+  String? subScreen;
+  TimeOfDay? clockInTime;
+
+  String _greeting() {
+    final h = TimeOfDay.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (subScreen == 'clockin')
+      return ClockInScreen(
+        user: widget.user,
+        onBack: () => setState(() => subScreen = null),
+        onLogout: widget.onLogout,
+        onClockedIn: (t) => setState(() {
+          clockInTime = t;
+          subScreen = null;
+        }),
+      );
+    if (subScreen == 'clockout')
+      return ClockOutScreen(
+        user: widget.user,
+        clockInTime: clockInTime,
+        onBack: () => setState(() => subScreen = null),
+        onLogout: widget.onLogout,
+        onClockedOut: () => setState(() {
+          clockInTime = null;
+          subScreen = null;
+        }),
+      );
+    if (subScreen == 'timesheet')
+      return TimesheetScreen(
+        user: widget.user,
+        onBack: () => setState(() => subScreen = null),
+        onLogout: widget.onLogout,
+      );
+
+    return Column(
+      children: [
+        AppHeader(onLogout: widget.onLogout),
+        Expanded(
+          child: _bgGradient(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Greeting card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [cNavyMid, cNavy],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: cNavy.withOpacity(0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                        const BoxShadow(
+                          color: cNavy,
+                          blurRadius: 0,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_greeting()}, ${widget.user.name.split(' ').first} 👋',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 20,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Mode Rentals · Auckland',
+                          style: TextStyle(color: Colors.white60, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'What would you like to do?',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: cNavyLight,
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
-                    'Reset Password',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 22,
-                      color: cText,
-                    ),
+
+                  // ── Tile 1: Clock In ──
+                  _NavTile(
+                    icon: Icons.login_rounded,
+                    label: 'Clock-In',
+                    subtitle: 'Start your shift & record location',
+                    gradient: [const Color(0xFF065F46), cGreen],
+                    shadowColor: const Color(0xFF064E3B),
+                    iconBg: Colors.white.withOpacity(0.15),
+                    onTap: () => setState(() => subScreen = 'clockin'),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    "Enter your email and we'll send you a reset link.",
-                    style: TextStyle(color: cMuted, fontSize: 13),
+                  const SizedBox(height: 12),
+
+                  // ── Tile 2: Clock Out ──
+                  _NavTile(
+                    icon: Icons.logout_rounded,
+                    label: 'Clock-Out & Shift Summary',
+                    subtitle: 'End your shift & review hours',
+                    gradient: [const Color(0xFF7F1D1D), cRedDark],
+                    shadowColor: const Color(0xFF450A0A),
+                    iconBg: Colors.white.withOpacity(0.15),
+                    onTap: () => setState(() => subScreen = 'clockout'),
                   ),
-                  const SizedBox(height: 24),
-                  if (!sent) ...[
-                    const InputLabel('Email Address'),
-                    StyledInput(
-                      hint: 'Your email address',
-                      ctrl: ctrl,
-                      keyboard: TextInputType.emailAddress,
-                    ),
-                    if (err.isNotEmpty) ErrorBox(err),
-                    PrimaryButton(
-                      label: 'Send Reset Link',
-                      onTap: _send,
-                      colors: [cPurple, const Color(0xFF4F46E5)],
-                      shadowColor: const Color(0xFF3730A3),
-                    ),
-                  ] else
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: cGreenLight,
-                        border: Border.all(color: cGreenBorder),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 52,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              color: cGreen.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(26),
-                            ),
-                            child: const Icon(
-                              Icons.mark_email_read_rounded,
-                              color: cGreen,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Reset link sent!',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: cGreenText,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Check ${ctrl.text.trim()} for your password reset link.',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: cGreenText,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 16),
-                          PrimaryButton(
-                            label: 'Back to Sign in',
-                            onTap: widget.onBack,
-                            colors: [cGreen, const Color(0xFF15803D)],
-                            shadowColor: cGreenDark,
-                          ),
-                        ],
-                      ),
-                    ),
+                  const SizedBox(height: 12),
+
+                  // ── Tile 3: Timesheet ──
+                  _NavTile(
+                    icon: Icons.calendar_month_rounded,
+                    label: 'Fortnightly Timesheet',
+                    subtitle: 'View & submit your timesheet',
+                    gradient: [const Color(0xFF1E3A8A), cBlue],
+                    shadowColor: const Color(0xFF1E3A5F),
+                    iconBg: Colors.white.withOpacity(0.15),
+                    onTap: () => setState(() => subScreen = 'timesheet'),
+                  ),
                 ],
               ),
             ),
@@ -925,187 +1092,958 @@ class _ForgotScreenState extends State<ForgotScreen> {
   }
 }
 
-// ─── STAFF HOME ────────────────────────────────────────────
-class StaffHome extends StatefulWidget {
-  final AppUser user;
-  final VoidCallback onLogout;
-  const StaffHome({super.key, required this.user, required this.onLogout});
-
+class _NavTile extends StatelessWidget {
+  final IconData icon;
+  final String label, subtitle;
+  final List<Color> gradient;
+  final Color shadowColor, iconBg;
+  final VoidCallback onTap;
+  const _NavTile({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.gradient,
+    required this.shadowColor,
+    required this.iconBg,
+    required this.onTap,
+  });
   @override
-  State<StaffHome> createState() => _StaffHomeState();
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: gradient.last.withOpacity(0.45),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 0,
+            offset: const Offset(0, 5),
+          ),
+          BoxShadow(
+            color: Colors.white.withOpacity(0.1),
+            blurRadius: 0,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Icon(icon, color: Colors.white, size: 26),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.white54,
+            size: 22,
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
-class _StaffHomeState extends State<StaffHome> {
-  bool checkedIn = false;
-  final List<Map<String, String>> log = [];
+// ─── CLOCK IN SCREEN ───────────────────────────────────────
+class ClockInScreen extends StatefulWidget {
+  final AppUser user;
+  final VoidCallback onBack, onLogout;
+  final void Function(TimeOfDay) onClockedIn;
+  const ClockInScreen({
+    super.key,
+    required this.user,
+    required this.onBack,
+    required this.onLogout,
+    required this.onClockedIn,
+  });
+  @override
+  State<ClockInScreen> createState() => _ClockInScreenState();
+}
 
-  String _now() => TimeOfDay.now().format(context);
+class _ClockInScreenState extends State<ClockInScreen> {
+  bool selfieOk = false;
+  bool clockedIn = false;
 
-  void _toggle() {
-    final a = checkedIn ? 'Check-out' : 'Check-in';
-    setState(() {
-      log.insert(0, {'action': a, 'time': _now()});
-      checkedIn = !checkedIn;
-    });
+  String _timeStr() {
+    final t = TimeOfDay.now();
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    final p = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $p';
+  }
+
+  String _dateStr() {
+    final now = DateTime.now();
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]} ${now.year}';
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        AppHeader(onLogout: widget.onLogout),
-        Expanded(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [cSlate, cSlate2],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+  Widget build(BuildContext context) => Column(
+    children: [
+      AppHeader(onLogout: widget.onLogout),
+      // Green sub-header
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF065F46), cGreen],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: widget.onBack,
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.arrow_back_ios_rounded,
+                    color: Colors.white70,
+                    size: 14,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Back',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RoleBadge(widget.user.role),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Hi, ${widget.user.name} 👋',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 18,
-                      color: cText,
-                    ),
-                  ),
-                  Text(
-                    widget.user.email,
-                    style: const TextStyle(fontSize: 12, color: cMuted),
-                  ),
-                  const SizedBox(height: 20),
-                  raisedCard(
-                    radius: 14,
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 56,
-                            height: 56,
+            const SizedBox(height: 8),
+            Text(
+              '${_greeting()}, ${widget.user.name.split(' ').first} 👋',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 20,
+              ),
+            ),
+            const Text(
+              'Mode Rentals · Auckland',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+      Expanded(
+        child: _bgGradient(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                // Time card
+                raisedCard(
+                  radius: 16,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        Text(
+                          _timeStr(),
+                          style: const TextStyle(
+                            fontSize: 42,
+                            fontWeight: FontWeight.w900,
+                            color: cText,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _dateStr(),
+                          style: const TextStyle(color: cMuted, fontSize: 13),
+                        ),
+                        const SizedBox(height: 16),
+                        // Location chip
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: cGreenLight,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: cGreenBorder),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.location_on_rounded,
+                                color: cGreen,
+                                size: 16,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'Auckland Airport · GPS verified ✓',
+                                style: TextStyle(
+                                  color: cGreenText,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // Selfie area
+                        GestureDetector(
+                          onTap: () => setState(() => selfieOk = !selfieOk),
+                          child: Container(
+                            width: double.infinity,
+                            height: 90,
                             decoration: BoxDecoration(
-                              color: checkedIn ? cGreenLight : cSlate,
-                              borderRadius: BorderRadius.circular(28),
-                            ),
-                            child: Icon(
-                              checkedIn
-                                  ? Icons.check_circle_rounded
-                                  : Icons.access_time_rounded,
-                              color: checkedIn ? cGreen : cMuted,
-                              size: 30,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            checkedIn
-                                ? 'Currently Checked In'
-                                : 'Not Checked In',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                              color: checkedIn ? cGreenText : cNavyMid,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          GestureDetector(
-                            onTap: _toggle,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 12,
-                                horizontal: 32,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: checkedIn
-                                      ? [const Color(0xFFC62828), cRed]
-                                      : [cGreen, const Color(0xFF15803D)],
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: (checkedIn ? cRed : cGreen)
-                                        .withOpacity(0.4),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                  BoxShadow(
-                                    color: checkedIn
-                                        ? const Color(0xFF7F1D1D)
-                                        : cGreenDark,
-                                    blurRadius: 0,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                checkedIn ? 'Check Out' : 'Check In',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
+                              color: selfieOk ? cGreenLight : cSlate,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selfieOk ? cGreenBorder : cBorder,
+                                width: 1.5,
+                                style: BorderStyle.solid,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (log.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    const Text(
-                      "Today's Log",
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: cNavyMid,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ...log.map(
-                      (l) => Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        child: raisedCard(
-                          radius: 8,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  l['action']!,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                    color: cText,
-                                  ),
+                                Icon(
+                                  selfieOk
+                                      ? Icons.check_circle_rounded
+                                      : Icons.camera_alt_rounded,
+                                  color: selfieOk ? cGreen : cMuted,
+                                  size: 28,
                                 ),
+                                const SizedBox(height: 6),
                                 Text(
-                                  l['time']!,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: cMuted,
+                                  selfieOk
+                                      ? 'Selfie captured ✓'
+                                      : 'Take selfie to clock in',
+                                  style: TextStyle(
+                                    color: selfieOk ? cGreenText : cMuted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
                             ),
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        // Clock In button
+                        GestureDetector(
+                          onTap: () {
+                            if (!clockedIn) {
+                              widget.onClockedIn(TimeOfDay.now());
+                              setState(() => clockedIn = true);
+                            }
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF065F46), cGreen],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: cGreen.withOpacity(0.45),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                                const BoxShadow(
+                                  color: Color(0xFF064E3B),
+                                  blurRadius: 0,
+                                  offset: Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: const Text(
+                              'Clock In',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // This fortnight summary
+                raisedCard(
+                  radius: 16,
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'This fortnight',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: cText,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _SummaryRow(
+                          label: 'Last week',
+                          value: '40.0 hrs',
+                          bold: false,
+                        ),
+                        const SizedBox(height: 8),
+                        _SummaryRow(
+                          label: 'This week so far',
+                          value: '16.5 hrs',
+                          bold: false,
+                        ),
+                        const Divider(height: 20, color: cBorder),
+                        _SummaryRow(
+                          label: 'Total',
+                          value: '56.5 hrs',
+                          bold: true,
+                          valueColor: cBlue,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+
+  String _greeting() {
+    final h = TimeOfDay.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+}
+
+// ─── CLOCK OUT SCREEN ──────────────────────────────────────
+class ClockOutScreen extends StatefulWidget {
+  final AppUser user;
+  final TimeOfDay? clockInTime;
+  final VoidCallback onBack, onLogout, onClockedOut;
+  const ClockOutScreen({
+    super.key,
+    required this.user,
+    required this.clockInTime,
+    required this.onBack,
+    required this.onLogout,
+    required this.onClockedOut,
+  });
+  @override
+  State<ClockOutScreen> createState() => _ClockOutScreenState();
+}
+
+class _ClockOutScreenState extends State<ClockOutScreen> {
+  final noteCtrl = TextEditingController();
+  bool confirmed = false;
+
+  String _fmt(TimeOfDay? t) {
+    if (t == null) return '--:-- --';
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    final p = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $p';
+  }
+
+  String _shiftTotal() {
+    if (widget.clockInTime == null) return '0.0 hrs';
+    final now = TimeOfDay.now();
+    final inMin = widget.clockInTime!.hour * 60 + widget.clockInTime!.minute;
+    final outMin = now.hour * 60 + now.minute;
+    final diff = ((outMin - inMin - 30).clamp(0, 999) / 60);
+    return '${diff.toStringAsFixed(1)} hrs';
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      AppHeader(onLogout: widget.onLogout),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF7F1D1D), cRedDark],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: widget.onBack,
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.arrow_back_ios_rounded,
+                    color: Colors.white70,
+                    size: 14,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Back',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Clock Out',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 22,
+              ),
+            ),
+            const Text(
+              'Confirm your shift end',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+      Expanded(
+        child: _bgGradient(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                if (confirmed) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: cGreenLight,
+                      border: Border.all(color: cGreenBorder),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          color: cGreen,
+                          size: 52,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Clocked Out!',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: cGreenText,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Shift total: ${_shiftTotal()}',
+                          style: const TextStyle(
+                            color: cGreenText,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        PrimaryButton(
+                          label: 'Back to Home',
+                          onTap: widget.onClockedOut,
+                          colors: [cGreen, const Color(0xFF15803D)],
+                          shadowColor: cGreenDark,
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  // Shift summary card
+                  raisedCard(
+                    radius: 16,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Today's shift",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: cText,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _SummaryRow(
+                            label: 'Clocked in',
+                            value: _fmt(widget.clockInTime),
+                            bold: false,
+                          ),
+                          const SizedBox(height: 8),
+                          _SummaryRow(
+                            label: 'Clocking out',
+                            value: _fmt(TimeOfDay.now()),
+                            bold: false,
+                          ),
+                          const SizedBox(height: 8),
+                          _SummaryRow(
+                            label: 'Break deducted',
+                            value: '30 min',
+                            bold: false,
+                          ),
+                          const Divider(height: 20, color: cBorder),
+                          _SummaryRow(
+                            label: 'Shift total',
+                            value: _shiftTotal(),
+                            bold: true,
+                            valueColor: cBlue,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Location
+                  raisedCard(
+                    radius: 12,
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on_rounded,
+                            color: cGreen,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Auckland Airport · GPS verified ✓',
+                            style: TextStyle(
+                              color: cGreenText,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Note
+                  raisedCard(
+                    radius: 12,
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Add a note (optional)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: cText,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: noteCtrl,
+                            maxLines: 3,
+                            style: const TextStyle(fontSize: 13, color: cText),
+                            decoration: InputDecoration(
+                              hintText:
+                                  'e.g. Completed vehicle drop-off at 3pm',
+                              hintStyle: const TextStyle(
+                                color: cMuted,
+                                fontSize: 12,
+                              ),
+                              filled: true,
+                              fillColor: cSlate,
+                              contentPadding: const EdgeInsets.all(12),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: cBorder),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: cBorder),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(
+                                  color: cRed,
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Confirm button
+                  GestureDetector(
+                    onTap: () => setState(() => confirmed = true),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF7F1D1D), cRedDark],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cRed.withOpacity(0.45),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                          const BoxShadow(
+                            color: Color(0xFF450A0A),
+                            blurRadius: 0,
+                            offset: Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'Confirm Clock Out',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+// ─── TIMESHEET SCREEN ──────────────────────────────────────
+class TimesheetScreen extends StatelessWidget {
+  final AppUser user;
+  final VoidCallback onBack, onLogout;
+  const TimesheetScreen({
+    super.key,
+    required this.user,
+    required this.onBack,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final month = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ][now.month - 1];
+    return Column(
+      children: [
+        AppHeader(onLogout: onLogout),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF1E3A8A), cBlue],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: onBack,
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.arrow_back_ios_rounded,
+                      color: Colors.white70,
+                      size: 14,
+                    ),
+                    SizedBox(width: 4),
+                    Text(
+                      'Back',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'My Timesheet',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
+                ),
+              ),
+              Text(
+                '1–14 $month ${now.year}',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _bgGradient(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  // Week 1
+                  raisedCard(
+                    radius: 16,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: cBlue,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Week 1 · 1–7 $month',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                  color: cText,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _SummaryRow(
+                            label: 'Mon 1 $month',
+                            value: '8.0 hrs',
+                            bold: false,
+                          ),
+                          const SizedBox(height: 7),
+                          _SummaryRow(
+                            label: 'Tue 2 $month',
+                            value: '8.5 hrs',
+                            bold: false,
+                          ),
+                          const SizedBox(height: 7),
+                          _SummaryRow(
+                            label: 'Wed 3 $month',
+                            value: '8.0 hrs',
+                            bold: false,
+                          ),
+                          const SizedBox(height: 7),
+                          _SummaryRow(
+                            label: 'Thu 4 $month',
+                            value: '7.5 hrs',
+                            bold: false,
+                          ),
+                          const SizedBox(height: 7),
+                          _SummaryRow(
+                            label: 'Fri 5 $month',
+                            value: '8.0 hrs',
+                            bold: false,
+                          ),
+                          const Divider(height: 20, color: cBorder),
+                          _SummaryRow(
+                            label: 'Week 1',
+                            value: '40.0 hrs',
+                            bold: true,
+                            valueColor: cBlue,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Week 2
+                  raisedCard(
+                    radius: 16,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: cBlue,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Week 2 · 8–14 $month',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                  color: cText,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _SummaryRow(
+                            label: 'Mon–Thu',
+                            value: '32.0 hrs',
+                            bold: false,
+                          ),
+                          const Divider(height: 20, color: cBorder),
+                          _SummaryRow(
+                            label: 'Fortnight total',
+                            value: '72.0 hrs',
+                            bold: true,
+                            valueColor: cBlue,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Submit button
+                  GestureDetector(
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Timesheet submitted to manager!'),
+                        backgroundColor: cGreen,
+                      ),
+                    ),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1E3A8A), cBlue],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cBlue.withOpacity(0.45),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                          const BoxShadow(
+                            color: Color(0xFF1E3A5F),
+                            blurRadius: 0,
+                            offset: Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'Submit to Manager',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
@@ -1114,6 +2052,41 @@ class _StaffHomeState extends State<StaffHome> {
       ],
     );
   }
+}
+
+// ─── Summary Row ───────────────────────────────────────────
+class _SummaryRow extends StatelessWidget {
+  final String label, value;
+  final bool bold;
+  final Color? valueColor;
+  const _SummaryRow({
+    required this.label,
+    required this.value,
+    required this.bold,
+    this.valueColor,
+  });
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          color: bold ? cText : cMuted,
+          fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+        ),
+      ),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
+          color: valueColor ?? (bold ? cText : cNavyMid),
+        ),
+      ),
+    ],
+  );
 }
 
 // ─── MANAGER HOME ──────────────────────────────────────────
@@ -1127,7 +2100,6 @@ class ManagerHome extends StatelessWidget {
     required this.users,
     required this.onLogout,
   });
-
   @override
   Widget build(BuildContext context) {
     final staff = users.where((u) => u.role == 'Staff').toList();
@@ -1135,14 +2107,7 @@ class ManagerHome extends StatelessWidget {
       children: [
         AppHeader(onLogout: onLogout),
         Expanded(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [cSlate, cSlate2],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
+          child: _bgGradient(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -1220,19 +2185,16 @@ class AdminHome extends StatefulWidget {
     required this.onAddUser,
     required this.onLogout,
   });
-
   @override
   State<AdminHome> createState() => _AdminHomeState();
 }
 
 class _AdminHomeState extends State<AdminHome> {
   bool adding = false;
-  final nCtrl = TextEditingController();
-  final eCtrl = TextEditingController();
-  final pCtrl = TextEditingController();
-  String role = 'Staff';
-  String formErr = '';
-  String successMsg = '';
+  final nCtrl = TextEditingController(),
+      eCtrl = TextEditingController(),
+      pCtrl = TextEditingController();
+  String role = 'Staff', formErr = '', successMsg = '';
 
   void _add() {
     if (nCtrl.text.trim().isEmpty) {
@@ -1266,61 +2228,53 @@ class _AdminHomeState extends State<AdminHome> {
     });
   }
 
-  Widget _miniStat(IconData icon, String label, int value, Color iconColor) {
-    return raisedCard(
-      radius: 10,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+  Widget _miniStat(IconData icon, String label, int value, Color iconColor) =>
+      raisedCard(
+        radius: 10,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor, size: 18),
               ),
-              child: Icon(icon, color: iconColor, size: 18),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$value',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                    color: cNavyMid,
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$value',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: cNavyMid,
+                    ),
                   ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 10, color: cMuted),
-                ),
-              ],
-            ),
-          ],
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 10, color: cMuted),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
 
   @override
   Widget build(BuildContext context) {
-    if (adding) {
+    if (adding)
       return Column(
         children: [
           AppHeader(onLogout: widget.onLogout),
           Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [cSlate, cSlate2],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
+            child: _bgGradient(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(18),
                 child: Column(
@@ -1414,20 +2368,12 @@ class _AdminHomeState extends State<AdminHome> {
           ),
         ],
       );
-    }
 
     return Column(
       children: [
         AppHeader(onLogout: widget.onLogout),
         Expanded(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [cSlate, cSlate2],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
+          child: _bgGradient(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(18),
               child: Column(
