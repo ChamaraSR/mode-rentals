@@ -63,6 +63,12 @@ const List<Branch> kBranches = [
     lat: -36.84820,
     lng: 174.76330,
   ),
+  Branch(
+    name: 'Epsom',
+    address: '69 Onslow Avenue, Epsom, Auckland 1023',
+    lat: -36.88750,
+    lng: 174.77130,
+  ),
 ];
 
 // ─── GPS Helper ────────────────────────────────────────────
