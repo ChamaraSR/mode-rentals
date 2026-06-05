@@ -1282,7 +1282,7 @@ class _NavTile extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ─── CLOCK IN SCREEN (Real GPS) ────────────────────────────
+// ─── CLOCK IN SCREEN ───────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
 enum GpsState { idle, loading, granted, denied, outOfRange }
@@ -1305,7 +1305,7 @@ class ClockInScreen extends StatefulWidget {
 }
 
 class _ClockInScreenState extends State<ClockInScreen> {
-  Branch? selectedBranch; // user picks from dropdown
+  Branch? selectedBranch;
   GpsState gpsState = GpsState.idle;
   Branch? detectedBranch;
   double? capturedLat, capturedLng;
@@ -1342,7 +1342,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
     return '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]} ${now.year}';
   }
 
-  // Reset GPS state when branch selection changes
   void _onBranchSelected(Branch? b) {
     setState(() {
       selectedBranch = b;
@@ -1360,7 +1359,18 @@ class _ClockInScreenState extends State<ClockInScreen> {
   Future<void> _requestGps() async {
     if (selectedBranch == null) return;
 
-    // ── Request location permission ──
+    // ── Check location services enabled ──
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        gpsState = GpsState.denied;
+        gpsError =
+            'Location services are disabled. Please enable GPS in your device settings.';
+      });
+      return;
+    }
+
+    // ── Check / request permission ──
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -1369,6 +1379,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
         permission == LocationPermission.denied) {
       setState(() {
         gpsState = GpsState.denied;
+        gpsError = '';
       });
       return;
     }
@@ -1379,51 +1390,56 @@ class _ClockInScreenState extends State<ClockInScreen> {
       detectedBranch = null;
     });
 
-    // ── Get real device GPS coordinates ──
-    final Position p = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-    final double devLat = p.latitude;
-    final double devLng = p.longitude;
-    final ts = DateTime.now();
+    try {
+      // ── Get real device GPS coordinates ──
+      final Position p = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      final double devLat = p.latitude;
+      final double devLng = p.longitude;
+      final ts = DateTime.now();
 
-    // Check distance to the SELECTED branch only
-    final distToSelected = haversineDistance(
-      devLat,
-      devLng,
-      selectedBranch!.lat,
-      selectedBranch!.lng,
-    );
+      final distToSelected = haversineDistance(
+        devLat,
+        devLng,
+        selectedBranch!.lat,
+        selectedBranch!.lng,
+      );
 
-    if (distToSelected <= selectedBranch!.radiusMeters) {
-      // ✅ Within range of selected branch
-      setState(() {
-        gpsState = GpsState.granted;
-        detectedBranch = selectedBranch;
-        capturedLat = devLat;
-        capturedLng = devLng;
-        gpsTimestamp = ts;
-        gpsError = '';
-      });
-    } else {
-      // ❌ Outside 500 m radius of selected branch
-      final distKm = (distToSelected / 1000).toStringAsFixed(2);
-
+      if (distToSelected <= selectedBranch!.radiusMeters) {
+        setState(() {
+          gpsState = GpsState.granted;
+          detectedBranch = selectedBranch;
+          capturedLat = devLat;
+          capturedLng = devLng;
+          gpsTimestamp = ts;
+          gpsError = '';
+        });
+      } else {
+        final distKm = (distToSelected / 1000).toStringAsFixed(2);
+        setState(() {
+          gpsState = GpsState.outOfRange;
+          capturedLat = devLat;
+          capturedLng = devLng;
+          gpsError =
+              'You selected "${selectedBranch!.name}" but you are '
+              '${distKm} km away from that location.\n\n'
+              'Clock-in requires you to be within 500 m of your '
+              'selected branch.\n\n'
+              'Please make sure you are physically at '
+              '"${selectedBranch!.name}" before clocking in, '
+              'or select a different branch that matches your '
+              'current location.\n\n'
+              'If you believe this is an error, please contact '
+              'your manager.';
+        });
+      }
+    } catch (e) {
       setState(() {
         gpsState = GpsState.outOfRange;
-        capturedLat = devLat;
-        capturedLng = devLng;
         gpsError =
-            'You selected "${selectedBranch!.name}" but you are '
-            '${distKm} km away from that location.\n\n'
-            'Clock-in requires you to be within 500 m of your '
-            'selected branch.\n\n'
-            'Please make sure you are physically at '
-            '"${selectedBranch!.name}" before clocking in, '
-            'or select a different branch that matches your '
-            'current location.\n\n'
-            'If you believe this is an error, please contact '
-            'your manager.';
+            'Could not acquire GPS signal. Please try again outdoors or near a window.\n\nError: $e';
       });
     }
   }
@@ -1504,7 +1520,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // ── Time card ──
                   raisedCard(
                     radius: 16,
                     child: Padding(
@@ -1527,7 +1542,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                           ),
                           const SizedBox(height: 20),
 
-                          // ── Branch selector dropdown ──
+                          // ── Branch selector ──
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1676,6 +1691,8 @@ class _ClockInScreenState extends State<ClockInScreen> {
                           const SizedBox(height: 16),
 
                           // ── GPS Panel ──
+                          // FIX: onVerify is now non-nullable VoidCallback.
+                          // verifyEnabled drives whether taps are active inside the panel.
                           _GpsPanel(
                             gpsState: gpsState,
                             selectedBranch: selectedBranch,
@@ -1684,14 +1701,14 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             capturedLat: capturedLat,
                             capturedLng: capturedLng,
                             gpsTimestamp: gpsTimestamp,
-                            onVerify: selectedBranch != null
-                                ? _requestGps
-                                : null,
+                            onVerify: _requestGps, // always pass the method
+                            verifyEnabled:
+                                selectedBranch !=
+                                null, // panel uses this to gate taps
                           ),
 
                           const SizedBox(height: 14),
 
-                          // ── Selfie (shown after GPS verified) ──
                           if (gpsState == GpsState.granted) ...[
                             GestureDetector(
                               onTap: () => setState(() => selfieOk = !selfieOk),
@@ -1734,7 +1751,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             const SizedBox(height: 14),
                           ],
 
-                          // ── Clock In button ──
                           _ClockInButton(
                             gpsState: gpsState,
                             selfieOk: selfieOk,
@@ -1749,7 +1765,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
 
                   const SizedBox(height: 16),
 
-                  // ── Fortnight summary ──
                   raisedCard(
                     radius: 16,
                     child: Padding(
@@ -1800,6 +1815,8 @@ class _ClockInScreenState extends State<ClockInScreen> {
 }
 
 // ─── GPS Panel ─────────────────────────────────────────────
+// FIX: onVerify is now a required non-nullable VoidCallback.
+//      verifyEnabled is a required bool that gates whether taps fire.
 class _GpsPanel extends StatelessWidget {
   final GpsState gpsState;
   final Branch? selectedBranch;
@@ -1807,8 +1824,8 @@ class _GpsPanel extends StatelessWidget {
   final String gpsError;
   final double? capturedLat, capturedLng;
   final DateTime? gpsTimestamp;
-  final VoidCallback onVerify;
-  final bool verifyEnabled;
+  final VoidCallback onVerify; // always non-null
+  final bool verifyEnabled; // true only when a branch is selected
 
   const _GpsPanel({
     required this.gpsState,
@@ -1835,32 +1852,31 @@ class _GpsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (gpsState) {
       case GpsState.idle:
-        final canVerify = selectedBranch != null && onVerify != null;
         return GestureDetector(
-          onTap: canVerify ? onVerify : null,
+          onTap: verifyEnabled ? onVerify : null,
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
             decoration: BoxDecoration(
-              color: canVerify ? cNavyMid : cSlate,
+              color: verifyEnabled ? cNavyMid : cSlate,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: canVerify ? cNavyLight : cBorder),
+              border: Border.all(color: verifyEnabled ? cNavyLight : cBorder),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   Icons.my_location_rounded,
-                  color: canVerify ? Colors.white : cMuted,
+                  color: verifyEnabled ? Colors.white : cMuted,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  canVerify
+                  verifyEnabled
                       ? 'Tap to verify location'
                       : 'Select a branch first',
                   style: TextStyle(
-                    color: canVerify ? Colors.white : cMuted,
+                    color: verifyEnabled ? Colors.white : cMuted,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2213,7 +2229,7 @@ class _ClockInButton extends StatelessWidget {
       );
     }
 
-    String label;
+    final String label;
     if (!branchSelected) {
       label = 'Select a Branch First';
     } else if (gpsState != GpsState.granted) {
@@ -2490,7 +2506,8 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                             if (widget.clockInRecord != null) ...[
                               const SizedBox(height: 6),
                               Text(
-                                '${widget.clockInRecord!.lat.toStringAsFixed(5)}, ${widget.clockInRecord!.lng.toStringAsFixed(5)}',
+                                '${widget.clockInRecord!.lat.toStringAsFixed(5)}, '
+                                '${widget.clockInRecord!.lng.toStringAsFixed(5)}',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   color: cMuted,
