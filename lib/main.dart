@@ -1807,7 +1807,8 @@ class _GpsPanel extends StatelessWidget {
   final String gpsError;
   final double? capturedLat, capturedLng;
   final DateTime? gpsTimestamp;
-  final VoidCallback? onVerify;
+  final VoidCallback onVerify;
+  final bool verifyEnabled;
 
   const _GpsPanel({
     required this.gpsState,
@@ -1818,6 +1819,7 @@ class _GpsPanel extends StatelessWidget {
     required this.capturedLng,
     required this.gpsTimestamp,
     required this.onVerify,
+    required this.verifyEnabled,
   });
 
   String _fmtTs(DateTime? ts) {
