@@ -1305,6 +1305,7 @@ class ClockInScreen extends StatefulWidget {
 }
 
 class _ClockInScreenState extends State<ClockInScreen> {
+  Branch? selectedBranch; // user picks from dropdown
   GpsState gpsState = GpsState.idle;
   Branch? detectedBranch;
   double? capturedLat, capturedLng;
@@ -1341,7 +1342,24 @@ class _ClockInScreenState extends State<ClockInScreen> {
     return '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]} ${now.year}';
   }
 
+  // Reset GPS state when branch selection changes
+  void _onBranchSelected(Branch? b) {
+    setState(() {
+      selectedBranch = b;
+      gpsState = GpsState.idle;
+      detectedBranch = null;
+      capturedLat = null;
+      capturedLng = null;
+      gpsTimestamp = null;
+      gpsError = '';
+      selfieOk = false;
+      clockedIn = false;
+    });
+  }
+
   Future<void> _requestGps() async {
+    if (selectedBranch == null) return;
+
     // ── Request location permission ──
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -1365,52 +1383,47 @@ class _ClockInScreenState extends State<ClockInScreen> {
     final Position p = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
     );
-    final double simLat = p.latitude;
-    final double simLng = p.longitude;
-
+    final double devLat = p.latitude;
+    final double devLng = p.longitude;
     final ts = DateTime.now();
-    final branch = nearestBranchInRange(simLat, simLng);
 
-    if (branch != null) {
+    // Check distance to the SELECTED branch only
+    final distToSelected = haversineDistance(
+      devLat,
+      devLng,
+      selectedBranch!.lat,
+      selectedBranch!.lng,
+    );
+
+    if (distToSelected <= selectedBranch!.radiusMeters) {
+      // ✅ Within range of selected branch
       setState(() {
         gpsState = GpsState.granted;
-        detectedBranch = branch;
-        capturedLat = simLat;
-        capturedLng = simLng;
+        detectedBranch = selectedBranch;
+        capturedLat = devLat;
+        capturedLng = devLng;
         gpsTimestamp = ts;
         gpsError = '';
       });
     } else {
-      final distAirport = haversineDistance(
-        simLat,
-        simLng,
-        kBranches[0].lat,
-        kBranches[0].lng,
-      );
-      final distCity = haversineDistance(
-        simLat,
-        simLng,
-        kBranches[1].lat,
-        kBranches[1].lng,
-      );
-      final closerName = distAirport < distCity
-          ? kBranches[0].name
-          : kBranches[1].name;
-      final closerDist = distAirport < distCity ? distAirport : distCity;
+      // ❌ Outside 500 m radius of selected branch
+      final distKm = (distToSelected / 1000).toStringAsFixed(2);
 
       setState(() {
         gpsState = GpsState.outOfRange;
-        capturedLat = simLat;
-        capturedLng = simLng;
+        capturedLat = devLat;
+        capturedLng = devLng;
         gpsError =
-            'You are not within 500 m of any Mode Rentals branch.\n\n'
-            'Nearest branch: $closerName '
-            '(${(closerDist / 1000).toStringAsFixed(1)} km away).\n\n'
-            'Clock-in is only permitted at:\n'
-            '• Auckland Airport\n'
-            '• Auckland City\n\n'
-            'Please travel to your assigned branch to clock in, '
-            'or contact your manager if you believe this is an error.';
+            'You selected "${selectedBranch!.name}" but you are '
+            '${distKm} km away from that location.\n\n'
+            'Clock-in requires you to be within 500 m of your '
+            'selected branch.\n\n'
+            'Please make sure you are physically at '
+            '"${selectedBranch!.name}" before clocking in, '
+            'or select a different branch that matches your '
+            'current location.\n\n'
+            'If you believe this is an error, please contact '
+            'your manager.';
       });
     }
   }
@@ -1512,17 +1525,173 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             _dateStr(),
                             style: const TextStyle(color: cMuted, fontSize: 13),
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 20),
+
+                          // ── Branch selector dropdown ──
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(
+                                    Icons.store_rounded,
+                                    color: cNavyMid,
+                                    size: 15,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Select your branch',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                      color: cNavyMid,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: cSlate,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: selectedBranch != null
+                                        ? cGreenBorder
+                                        : cBorder,
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: cNavy.withOpacity(0.05),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<Branch>(
+                                    value: selectedBranch,
+                                    isExpanded: true,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                    ),
+                                    hint: const Row(
+                                      children: [
+                                        Icon(
+                                          Icons.location_on_outlined,
+                                          color: cMuted,
+                                          size: 16,
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          '— Choose authorised location —',
+                                          style: TextStyle(
+                                            color: cMuted,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    items: kBranches
+                                        .map(
+                                          (b) => DropdownMenuItem<Branch>(
+                                            value: b,
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 8,
+                                                  height: 8,
+                                                  decoration: BoxDecoration(
+                                                    color: cGreen,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          4,
+                                                        ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        b.name,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          fontSize: 13,
+                                                          color: cText,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        b.address,
+                                                        style: const TextStyle(
+                                                          fontSize: 10,
+                                                          color: cMuted,
+                                                        ),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: _onBranchSelected,
+                                  ),
+                                ),
+                              ),
+                              if (selectedBranch != null) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: cGreen,
+                                      size: 13,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                        selectedBranch!.address,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: cGreenText,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ── GPS Panel ──
                           _GpsPanel(
                             gpsState: gpsState,
+                            selectedBranch: selectedBranch,
                             detectedBranch: detectedBranch,
                             gpsError: gpsError,
                             capturedLat: capturedLat,
                             capturedLng: capturedLng,
                             gpsTimestamp: gpsTimestamp,
-                            onVerify: _requestGps,
+                            onVerify: selectedBranch != null
+                                ? _requestGps
+                                : null,
                           ),
+
                           const SizedBox(height: 14),
+
+                          // ── Selfie (shown after GPS verified) ──
                           if (gpsState == GpsState.granted) ...[
                             GestureDetector(
                               onTap: () => setState(() => selfieOk = !selfieOk),
@@ -1564,93 +1733,22 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             ),
                             const SizedBox(height: 14),
                           ],
+
+                          // ── Clock In button ──
                           _ClockInButton(
                             gpsState: gpsState,
                             selfieOk: selfieOk,
                             clockedIn: clockedIn,
+                            branchSelected: selectedBranch != null,
                             onTap: _confirmClockIn,
                           ),
                         ],
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 16),
-                  // ── Authorised locations card ──
-                  raisedCard(
-                    radius: 14,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.store_rounded,
-                                color: cNavyMid,
-                                size: 16,
-                              ),
-                              SizedBox(width: 8),
-                              Text(
-                                'Authorised clock-in locations',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                  color: cNavyMid,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          ...kBranches.map(
-                            (b) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    margin: const EdgeInsets.only(top: 4),
-                                    decoration: BoxDecoration(
-                                      color: cGreen,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          b.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12,
-                                            color: cText,
-                                          ),
-                                        ),
-                                        Text(
-                                          b.address,
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: cMuted,
-                                            height: 1.4,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+
                   // ── Fortnight summary ──
                   raisedCard(
                     radius: 16,
@@ -1704,14 +1802,16 @@ class _ClockInScreenState extends State<ClockInScreen> {
 // ─── GPS Panel ─────────────────────────────────────────────
 class _GpsPanel extends StatelessWidget {
   final GpsState gpsState;
+  final Branch? selectedBranch;
   final Branch? detectedBranch;
   final String gpsError;
   final double? capturedLat, capturedLng;
   final DateTime? gpsTimestamp;
-  final VoidCallback onVerify;
+  final VoidCallback? onVerify;
 
   const _GpsPanel({
     required this.gpsState,
+    required this.selectedBranch,
     required this.detectedBranch,
     required this.gpsError,
     required this.capturedLat,
@@ -1733,25 +1833,32 @@ class _GpsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (gpsState) {
       case GpsState.idle:
+        final canVerify = selectedBranch != null && onVerify != null;
         return GestureDetector(
-          onTap: onVerify,
+          onTap: canVerify ? onVerify : null,
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
             decoration: BoxDecoration(
-              color: cSlate,
+              color: canVerify ? cNavyMid : cSlate,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cBorder),
+              border: Border.all(color: canVerify ? cNavyLight : cBorder),
             ),
-            child: const Row(
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.my_location_rounded, color: cMuted, size: 18),
-                SizedBox(width: 8),
+                Icon(
+                  Icons.my_location_rounded,
+                  color: canVerify ? Colors.white : cMuted,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
                 Text(
-                  'Tap to verify location',
+                  canVerify
+                      ? 'Tap to verify location'
+                      : 'Select a branch first',
                   style: TextStyle(
-                    color: cMuted,
+                    color: canVerify ? Colors.white : cMuted,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2062,13 +2169,14 @@ class _GpsPanel extends StatelessWidget {
 // ─── Clock In Button ───────────────────────────────────────
 class _ClockInButton extends StatelessWidget {
   final GpsState gpsState;
-  final bool selfieOk, clockedIn;
+  final bool selfieOk, clockedIn, branchSelected;
   final VoidCallback onTap;
 
   const _ClockInButton({
     required this.gpsState,
     required this.selfieOk,
     required this.clockedIn,
+    required this.branchSelected,
     required this.onTap,
   });
 
@@ -2103,6 +2211,17 @@ class _ClockInButton extends StatelessWidget {
       );
     }
 
+    String label;
+    if (!branchSelected) {
+      label = 'Select a Branch First';
+    } else if (gpsState != GpsState.granted) {
+      label = 'Verify Location First';
+    } else if (!selfieOk) {
+      label = 'Take Selfie to Enable';
+    } else {
+      label = 'Clock In';
+    }
+
     return Opacity(
       opacity: _enabled ? 1.0 : 0.45,
       child: GestureDetector(
@@ -2129,11 +2248,7 @@ class _ClockInButton extends StatelessWidget {
                 : [],
           ),
           child: Text(
-            gpsState != GpsState.granted
-                ? 'Verify Location First'
-                : !selfieOk
-                ? 'Take Selfie to Enable'
-                : 'Clock In',
+            label,
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white,
