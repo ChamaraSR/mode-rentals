@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:async' show TimeoutException;
+import 'dart:io' show File;
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() => runApp(const ModeRentalsApp());
 
@@ -46,7 +49,7 @@ class Branch {
     required this.address,
     required this.lat,
     required this.lng,
-    this.radiusMeters = 500,
+    this.radiusMeters = 1000,
   });
 }
 
@@ -108,11 +111,13 @@ class ClockInRecord {
   final double lat;
   final double lng;
   final Branch branch;
+  final File? photo;
   ClockInRecord({
     required this.timestamp,
     required this.lat,
     required this.lng,
     required this.branch,
+    this.photo,
   });
 }
 
@@ -162,7 +167,6 @@ class _ModeRentalsAppState extends State<ModeRentalsApp> {
       role: 'Staff',
     ),
   ];
-
   String screen = 'login';
   AppUser? currentUser;
 
@@ -1285,7 +1289,7 @@ class _NavTile extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ─── CLOCK IN SCREEN (Real GPS) ────────────────────────────
+// ─── CLOCK IN SCREEN ───────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
 enum GpsState { idle, loading, granted, denied, outOfRange }
@@ -1308,14 +1312,15 @@ class ClockInScreen extends StatefulWidget {
 }
 
 class _ClockInScreenState extends State<ClockInScreen> {
-  Branch? selectedBranch; // user picks from dropdown
+  Branch? selectedBranch;
   GpsState gpsState = GpsState.idle;
   Branch? detectedBranch;
   double? capturedLat, capturedLng;
   DateTime? gpsTimestamp;
-  bool selfieOk = false;
+  File? capturedPhoto;
   bool clockedIn = false;
   String gpsError = '';
+  final ImagePicker _picker = ImagePicker();
 
   String _timeStr() {
     final t = TimeOfDay.now();
@@ -1345,7 +1350,6 @@ class _ClockInScreenState extends State<ClockInScreen> {
     return '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]} ${now.year}';
   }
 
-  // Reset GPS state when branch selection changes
   void _onBranchSelected(Branch? b) {
     setState(() {
       selectedBranch = b;
@@ -1360,7 +1364,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
     });
   }
 
-  // ── Take photo using front camera only — no gallery option ──
+  // ── Camera: front camera only, no gallery ──
   Future<void> _takePhoto() async {
     try {
       final XFile? photo = await _picker.pickImage(
@@ -1381,84 +1385,139 @@ class _ClockInScreenState extends State<ClockInScreen> {
     }
   }
 
-  Future<void> _requestGps() async {
+  // ── Sync wrapper — flips to loading immediately ──
+  void _onVerifyTapped() {
     if (selectedBranch == null) return;
-
-    // ── Request location permission ──
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.deniedForever ||
-        permission == LocationPermission.denied) {
-      setState(() {
-        gpsState = GpsState.denied;
-      });
-      return;
-    }
-
     setState(() {
       gpsState = GpsState.loading;
       gpsError = '';
       detectedBranch = null;
     });
+    _requestGps();
+  }
 
-    // ── Get real device GPS coordinates ──
-    final Position p = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-    final double devLat = p.latitude;
-    final double devLng = p.longitude;
-    final ts = DateTime.now();
+  Future<void> _requestGps() async {
+    if (selectedBranch == null) {
+      if (mounted) setState(() => gpsState = GpsState.idle);
+      return;
+    }
+    try {
+      // 1. Check location services
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!serviceEnabled) {
+        setState(() {
+          gpsState = GpsState.denied;
+          gpsError =
+              'Location services are disabled on this device.\n\n'
+              'Please go to Settings → Privacy → Location Services, '
+              'turn it on, then try again.';
+        });
+        return;
+      }
 
-    // Check distance to the SELECTED branch only
-    final distToSelected = haversineDistance(
-      devLat,
-      devLng,
-      selectedBranch!.lat,
-      selectedBranch!.lng,
-    );
+      // 2. Check / request permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (!mounted) return;
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (!mounted) return;
+      }
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          gpsState = GpsState.denied;
+          gpsError =
+              'Location permission has been permanently denied.\n\n'
+              'Please go to Settings → Mode Rentals → Location, '
+              'set it to "While Using the App", then retry.';
+        });
+        return;
+      }
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          gpsState = GpsState.denied;
+          gpsError =
+              'Location permission was denied. '
+              'Please allow location access when prompted and try again.';
+        });
+        return;
+      }
 
-    if (distToSelected <= selectedBranch!.radiusMeters) {
-      // ✅ Within range of selected branch
-      setState(() {
-        gpsState = GpsState.granted;
-        detectedBranch = selectedBranch;
-        capturedLat = devLat;
-        capturedLng = devLng;
-        gpsTimestamp = ts;
-        gpsError = '';
-      });
-    } else {
-      // ❌ Outside 500 m radius of selected branch
-      final distKm = (distToSelected / 1000).toStringAsFixed(2);
+      // 3. Fetch position
+      final Position p = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 20),
+      );
+      if (!mounted) return;
 
+      final double devLat = p.latitude;
+      final double devLng = p.longitude;
+      final ts = DateTime.now();
+
+      // 4. Check distance to selected branch
+      final distToSelected = haversineDistance(
+        devLat,
+        devLng,
+        selectedBranch!.lat,
+        selectedBranch!.lng,
+      );
+
+      if (distToSelected <= selectedBranch!.radiusMeters) {
+        setState(() {
+          gpsState = GpsState.granted;
+          detectedBranch = selectedBranch;
+          capturedLat = devLat;
+          capturedLng = devLng;
+          gpsTimestamp = ts;
+          gpsError = '';
+        });
+      } else {
+        final distKm = (distToSelected / 1000).toStringAsFixed(2);
+        setState(() {
+          gpsState = GpsState.outOfRange;
+          capturedLat = devLat;
+          capturedLng = devLng;
+          gpsError =
+              'You selected "${selectedBranch!.name}" but your GPS '
+              'places you ${distKm} km away.\n\n'
+              'Clock-in requires you to be within 1000 m of your '
+              'selected branch.\n\n'
+              'Please ensure you are physically at '
+              '"${selectedBranch!.name}", or choose a different '
+              'branch that matches your current location.\n\n'
+              'Contact your manager if you believe this is an error.';
+        });
+      }
+    } on TimeoutException {
+      if (!mounted) return;
       setState(() {
         gpsState = GpsState.outOfRange;
-        capturedLat = devLat;
-        capturedLng = devLng;
         gpsError =
-            'You selected "${selectedBranch!.name}" but you are '
-            '${distKm} km away from that location.\n\n'
-            'Clock-in requires you to be within 500 m of your '
-            'selected branch.\n\n'
-            'Please make sure you are physically at '
-            '"${selectedBranch!.name}" before clocking in, '
-            'or select a different branch that matches your '
-            'current location.\n\n'
-            'If you believe this is an error, please contact '
-            'your manager.';
+            'GPS timed out after 20 seconds.\n\n'
+            'Try moving to an open area with a clear view of the sky '
+            'and tap "Retry GPS Check".';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        gpsState = GpsState.outOfRange;
+        gpsError =
+            'Could not acquire GPS signal.\n\n'
+            'Make sure you are outdoors or near a window, then tap '
+            '"Retry GPS Check".\n\nDetail: $e';
       });
     }
   }
 
   void _confirmClockIn() {
-    if (detectedBranch == null || capturedLat == null) return;
+    if (detectedBranch == null || capturedLat == null || capturedPhoto == null)
+      return;
     final record = ClockInRecord(
       timestamp: gpsTimestamp ?? DateTime.now(),
       lat: capturedLat!,
       lng: capturedLng!,
       branch: detectedBranch!,
+      photo: capturedPhoto,
     );
     setState(() => clockedIn = true);
     Future.delayed(
@@ -1528,13 +1587,13 @@ class _ClockInScreenState extends State<ClockInScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // ── Time card ──
                   raisedCard(
                     radius: 16,
                     child: Padding(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         children: [
+                          // Time & date
                           Text(
                             _timeStr(),
                             style: const TextStyle(
@@ -1551,7 +1610,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                           ),
                           const SizedBox(height: 20),
 
-                          // ── Branch selector dropdown ──
+                          // ── Branch selector ──
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1708,52 +1767,213 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             capturedLat: capturedLat,
                             capturedLng: capturedLng,
                             gpsTimestamp: gpsTimestamp,
-                            onVerify: selectedBranch != null
-                                ? _requestGps
-                                : null,
+                            onVerify: _onVerifyTapped,
+                            verifyEnabled: selectedBranch != null,
                           ),
 
                           const SizedBox(height: 14),
 
-                          // ── Selfie (shown after GPS verified) ──
+                          // ── Photo section (only after GPS verified) ──
                           if (gpsState == GpsState.granted) ...[
-                            GestureDetector(
-                              onTap: () => setState(() => selfieOk = !selfieOk),
-                              child: Container(
-                                width: double.infinity,
-                                height: 86,
-                                decoration: BoxDecoration(
-                                  color: selfieOk ? cGreenLight : cSlate,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: selfieOk ? cGreenBorder : cBorder,
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
                                   children: [
                                     Icon(
-                                      selfieOk
-                                          ? Icons.check_circle_rounded
-                                          : Icons.camera_alt_rounded,
-                                      color: selfieOk ? cGreen : cMuted,
-                                      size: 26,
+                                      Icons.camera_alt_rounded,
+                                      color: cNavyMid,
+                                      size: 15,
                                     ),
-                                    const SizedBox(height: 5),
+                                    SizedBox(width: 6),
                                     Text(
-                                      selfieOk
-                                          ? 'Selfie captured ✓'
-                                          : 'Take selfie to clock in',
+                                      'Clock-in photo',
                                       style: TextStyle(
-                                        color: selfieOk ? cGreenText : cMuted,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: cNavyMid,
                                       ),
                                     ),
                                   ],
                                 ),
-                              ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'A photo is required to complete clock-in. '
+                                  'You must take a new photo — uploading from gallery is not allowed.',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: cMuted,
+                                    height: 1.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                capturedPhoto != null
+                                    ? Stack(
+                                        children: [
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            child: Image.file(
+                                              capturedPhoto!,
+                                              width: double.infinity,
+                                              height: 160,
+                                              fit: BoxFit.cover,
+                                            ),
+                                          ),
+                                          Positioned(
+                                            top: 8,
+                                            right: 8,
+                                            child: GestureDetector(
+                                              onTap: _takePhoto,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: cNavy.withOpacity(
+                                                    0.75,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                ),
+                                                child: const Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.refresh_rounded,
+                                                      color: Colors.white,
+                                                      size: 13,
+                                                    ),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      'Retake',
+                                                      style: TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            bottom: 8,
+                                            left: 8,
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: cGreen.withOpacity(0.85),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.check_circle_rounded,
+                                                    color: Colors.white,
+                                                    size: 12,
+                                                  ),
+                                                  SizedBox(width: 4),
+                                                  Text(
+                                                    'Photo captured ✓',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : GestureDetector(
+                                        onTap: _takePhoto,
+                                        child: Container(
+                                          width: double.infinity,
+                                          height: 110,
+                                          decoration: BoxDecoration(
+                                            color: cSlate,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: cBorder,
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Container(
+                                                width: 48,
+                                                height: 48,
+                                                decoration: BoxDecoration(
+                                                  gradient:
+                                                      const LinearGradient(
+                                                        colors: [
+                                                          cNavyMid,
+                                                          cNavyLight,
+                                                        ],
+                                                      ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(24),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: cNavy.withOpacity(
+                                                        0.3,
+                                                      ),
+                                                      blurRadius: 8,
+                                                      offset: const Offset(
+                                                        0,
+                                                        3,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: const Icon(
+                                                  Icons.camera_alt_rounded,
+                                                  color: Colors.white,
+                                                  size: 22,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              const Text(
+                                                'Tap to take photo',
+                                                style: TextStyle(
+                                                  color: cNavyMid,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              const Text(
+                                                'Camera only · no gallery upload',
+                                                style: TextStyle(
+                                                  color: cMuted,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                              ],
                             ),
                             const SizedBox(height: 14),
                           ],
@@ -1761,7 +1981,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                           // ── Clock In button ──
                           _ClockInButton(
                             gpsState: gpsState,
-                            selfieOk: selfieOk,
+                            photoTaken: capturedPhoto != null,
                             clockedIn: clockedIn,
                             branchSelected: selectedBranch != null,
                             onTap: _confirmClockIn,
@@ -1850,41 +2070,40 @@ class _GpsPanel extends StatelessWidget {
     if (ts == null) return '';
     final h = ts.hour % 12 == 0 ? 12 : ts.hour % 12;
     final m = ts.minute.toString().padLeft(2, '0');
-    final s = ts.second.toString().padLeft(2, '0');
+    final sc = ts.second.toString().padLeft(2, '0');
     final p = ts.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m:$s $p';
+    return '$h:$m:$sc $p';
   }
 
   @override
   Widget build(BuildContext context) {
     switch (gpsState) {
       case GpsState.idle:
-        final canVerify = selectedBranch != null && onVerify != null;
         return GestureDetector(
-          onTap: canVerify ? onVerify : null,
+          onTap: verifyEnabled ? onVerify : null,
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
             decoration: BoxDecoration(
-              color: canVerify ? cNavyMid : cSlate,
+              color: verifyEnabled ? cNavyMid : cSlate,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: canVerify ? cNavyLight : cBorder),
+              border: Border.all(color: verifyEnabled ? cNavyLight : cBorder),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   Icons.my_location_rounded,
-                  color: canVerify ? Colors.white : cMuted,
+                  color: verifyEnabled ? Colors.white : cMuted,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  canVerify
+                  verifyEnabled
                       ? 'Tap to verify location'
                       : 'Select a branch first',
                   style: TextStyle(
-                    color: canVerify ? Colors.white : cMuted,
+                    color: verifyEnabled ? Colors.white : cMuted,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2112,7 +2331,8 @@ class _GpsPanel extends StatelessWidget {
                     const Icon(Icons.gps_not_fixed, color: cMuted, size: 12),
                     const SizedBox(width: 6),
                     Text(
-                      'Last GPS: ${capturedLat!.toStringAsFixed(5)}, ${capturedLng!.toStringAsFixed(5)}',
+                      'Last GPS: ${capturedLat!.toStringAsFixed(5)}, '
+                      '${capturedLng!.toStringAsFixed(5)}',
                       style: const TextStyle(
                         fontSize: 10,
                         color: cMuted,
@@ -2151,9 +2371,11 @@ class _GpsPanel extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Please enable location access in your device Settings to clock in.',
-                style: TextStyle(color: cRed, fontSize: 11, height: 1.4),
+              Text(
+                gpsError.isNotEmpty
+                    ? gpsError
+                    : 'Please enable location access in Settings to clock in.',
+                style: const TextStyle(color: cRed, fontSize: 11, height: 1.4),
               ),
               const SizedBox(height: 8),
               GestureDetector(
@@ -2195,18 +2417,18 @@ class _GpsPanel extends StatelessWidget {
 // ─── Clock In Button ───────────────────────────────────────
 class _ClockInButton extends StatelessWidget {
   final GpsState gpsState;
-  final bool selfieOk, clockedIn, branchSelected;
+  final bool photoTaken, clockedIn, branchSelected;
   final VoidCallback onTap;
 
   const _ClockInButton({
     required this.gpsState,
-    required this.selfieOk,
+    required this.photoTaken,
     required this.clockedIn,
     required this.branchSelected,
     required this.onTap,
   });
 
-  bool get _enabled => gpsState == GpsState.granted && selfieOk && !clockedIn;
+  bool get _enabled => gpsState == GpsState.granted && photoTaken && !clockedIn;
 
   @override
   Widget build(BuildContext context) {
@@ -2237,13 +2459,13 @@ class _ClockInButton extends StatelessWidget {
       );
     }
 
-    String label;
+    final String label;
     if (!branchSelected) {
       label = 'Select a Branch First';
     } else if (gpsState != GpsState.granted) {
       label = 'Verify Location First';
-    } else if (!selfieOk) {
-      label = 'Take Selfie to Enable';
+    } else if (!photoTaken) {
+      label = 'Take Photo to Enable Clock-In';
     } else {
       label = 'Clock In';
     }
@@ -2514,7 +2736,8 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                             if (widget.clockInRecord != null) ...[
                               const SizedBox(height: 6),
                               Text(
-                                '${widget.clockInRecord!.lat.toStringAsFixed(5)}, ${widget.clockInRecord!.lng.toStringAsFixed(5)}',
+                                '${widget.clockInRecord!.lat.toStringAsFixed(5)}, '
+                                '${widget.clockInRecord!.lng.toStringAsFixed(5)}',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   color: cMuted,
