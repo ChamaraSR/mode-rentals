@@ -14,6 +14,9 @@ dependencies:
   # GPS / Location
   geolocator: ^10.1.0
 
+  # Camera — front-camera selfie, no gallery option
+  image_picker: ^1.1.2
+
   # Camera (selfie capture)
   camera: ^0.11.0
 

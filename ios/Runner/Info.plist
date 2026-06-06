@@ -51,5 +51,9 @@
 	<string>Mode Rentals needs your location to verify you are at an authorised branch before clocking in.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Mode Rentals needs your location to verify you are at an authorised branch before clocking in.</string>
+
+	<!-- ── Camera permission required for clock-in selfie ── -->
+	<key>NSCameraUsageDescription</key>
+	<string>Mode Rentals requires a photo taken at clock-in to verify your attendance at the branch.</string>
 </dict>
 </plist>

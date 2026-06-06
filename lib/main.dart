@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:async' show TimeoutException;
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:geolocator/geolocator.dart';
 
@@ -57,18 +56,21 @@ const List<Branch> kBranches = [
     address: '110 Montgomerie Rd, Airport Oaks, Mangere, Auckland 2022',
     lat: -37.00468,
     lng: 174.78486,
+    radiusMeters: 1000,
   ),
   Branch(
     name: 'Auckland City',
     address: '26 Te Taou Crescent, Auckland Central, Auckland 1010',
     lat: -36.84820,
     lng: 174.76330,
+    radiusMeters: 1000,
   ),
   Branch(
     name: 'Epsom',
     address: '69 Onslow Avenue, Epsom, Auckland 1023',
     lat: -36.88750,
     lng: 174.77130,
+    radiusMeters: 1000,
   ),
 ];
 
@@ -1283,7 +1285,7 @@ class _NavTile extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ─── CLOCK IN SCREEN ───────────────────────────────────────
+// ─── CLOCK IN SCREEN (Real GPS) ────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
 enum GpsState { idle, loading, granted, denied, outOfRange }
@@ -1306,7 +1308,7 @@ class ClockInScreen extends StatefulWidget {
 }
 
 class _ClockInScreenState extends State<ClockInScreen> {
-  Branch? selectedBranch;
+  Branch? selectedBranch; // user picks from dropdown
   GpsState gpsState = GpsState.idle;
   Branch? detectedBranch;
   double? capturedLat, capturedLng;
@@ -1343,6 +1345,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
     return '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]} ${now.year}';
   }
 
+  // Reset GPS state when branch selection changes
   void _onBranchSelected(Branch? b) {
     setState(() {
       selectedBranch = b;
@@ -1352,138 +1355,99 @@ class _ClockInScreenState extends State<ClockInScreen> {
       capturedLng = null;
       gpsTimestamp = null;
       gpsError = '';
-      selfieOk = false;
+      capturedPhoto = null;
       clockedIn = false;
     });
   }
 
-  // ── Sync wrapper: flips UI to loading immediately, then fires async work.
-  // This is what GestureDetector.onTap calls — it is NOT async itself,
-  // so the tap is never silently swallowed by an unhandled Future exception.
-  void _onVerifyTapped() {
+  // ── Take photo using front camera only — no gallery option ──
+  Future<void> _takePhoto() async {
+    try {
+      final XFile? photo = await _picker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        imageQuality: 80,
+        maxWidth: 800,
+      );
+      if (photo != null && mounted) {
+        setState(() => capturedPhoto = File(photo.path));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera error: $e'), backgroundColor: cRed),
+        );
+      }
+    }
+  }
+
+  Future<void> _requestGps() async {
     if (selectedBranch == null) return;
+
+    // ── Request location permission ──
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.denied) {
+      setState(() {
+        gpsState = GpsState.denied;
+      });
+      return;
+    }
+
     setState(() {
       gpsState = GpsState.loading;
       gpsError = '';
       detectedBranch = null;
     });
-    _requestGps(); // fire-and-forget; all errors handled inside
-  }
 
-  // ── All async GPS work lives here, fully wrapped in try/catch.
-  Future<void> _requestGps() async {
-    if (selectedBranch == null) {
-      if (mounted) setState(() => gpsState = GpsState.idle);
-      return;
-    }
+    // ── Get real device GPS coordinates ──
+    final Position p = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+    final double devLat = p.latitude;
+    final double devLng = p.longitude;
+    final ts = DateTime.now();
 
-    try {
-      // ── 1. Check location services are on ──
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!mounted) return;
-      if (!serviceEnabled) {
-        setState(() {
-          gpsState = GpsState.denied;
-          gpsError =
-              'Location services are disabled on this device.\n\n'
-              'Please go to Settings → Privacy → Location Services, '
-              'turn it on, then try again.';
-        });
-        return;
-      }
+    // Check distance to the SELECTED branch only
+    final distToSelected = haversineDistance(
+      devLat,
+      devLng,
+      selectedBranch!.lat,
+      selectedBranch!.lng,
+    );
 
-      // ── 2. Check / request permission ──
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (!mounted) return;
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (!mounted) return;
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          gpsState = GpsState.denied;
-          gpsError =
-              'Location permission has been permanently denied.\n\n'
-              'Please go to Settings → Mode Rentals → Location, '
-              'set it to "While Using the App", then retry.';
-        });
-        return;
-      }
-
-      if (permission == LocationPermission.denied) {
-        setState(() {
-          gpsState = GpsState.denied;
-          gpsError =
-              'Location permission was denied. '
-              'Please allow location access when prompted and try again.';
-        });
-        return;
-      }
-
-      // ── 3. Fetch position ──
-      final Position p = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 20),
-      );
-      if (!mounted) return;
-
-      final double devLat = p.latitude;
-      final double devLng = p.longitude;
-      final ts = DateTime.now();
-
-      // ── 4. Check distance to selected branch ──
-      final distToSelected = haversineDistance(
-        devLat,
-        devLng,
-        selectedBranch!.lat,
-        selectedBranch!.lng,
-      );
-
-      if (distToSelected <= selectedBranch!.radiusMeters) {
-        setState(() {
-          gpsState = GpsState.granted;
-          detectedBranch = selectedBranch;
-          capturedLat = devLat;
-          capturedLng = devLng;
-          gpsTimestamp = ts;
-          gpsError = '';
-        });
-      } else {
-        final distKm = (distToSelected / 1000).toStringAsFixed(2);
-        setState(() {
-          gpsState = GpsState.outOfRange;
-          capturedLat = devLat;
-          capturedLng = devLng;
-          gpsError =
-              'You selected "${selectedBranch!.name}" but your GPS '
-              'places you ${distKm} km away.\n\n'
-              'Clock-in requires you to be within 500 m of your '
-              'selected branch.\n\n'
-              'Please ensure you are physically at '
-              '"${selectedBranch!.name}", or choose a different '
-              'branch that matches your current location.\n\n'
-              'Contact your manager if you believe this is an error.';
-        });
-      }
-    } on TimeoutException {
-      if (!mounted) return;
+    if (distToSelected <= selectedBranch!.radiusMeters) {
+      // ✅ Within range of selected branch
       setState(() {
-        gpsState = GpsState.outOfRange;
-        gpsError =
-            'GPS timed out after 20 seconds.\n\n'
-            'Try moving to an open area with a clear view of the sky '
-            'and tap "Retry GPS Check".';
+        gpsState = GpsState.granted;
+        detectedBranch = selectedBranch;
+        capturedLat = devLat;
+        capturedLng = devLng;
+        gpsTimestamp = ts;
+        gpsError = '';
       });
-    } catch (e) {
-      if (!mounted) return;
+    } else {
+      // ❌ Outside 500 m radius of selected branch
+      final distKm = (distToSelected / 1000).toStringAsFixed(2);
+
       setState(() {
         gpsState = GpsState.outOfRange;
+        capturedLat = devLat;
+        capturedLng = devLng;
         gpsError =
-            'Could not acquire GPS signal.\n\n'
-            'Make sure you are outdoors or near a window, then tap '
-            '"Retry GPS Check".\n\nDetail: $e';
+            'You selected "${selectedBranch!.name}" but you are '
+            '${distKm} km away from that location.\n\n'
+            'Clock-in requires you to be within 500 m of your '
+            'selected branch.\n\n'
+            'Please make sure you are physically at '
+            '"${selectedBranch!.name}" before clocking in, '
+            'or select a different branch that matches your '
+            'current location.\n\n'
+            'If you believe this is an error, please contact '
+            'your manager.';
       });
     }
   }
@@ -1564,6 +1528,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
+                  // ── Time card ──
                   raisedCard(
                     radius: 16,
                     child: Padding(
@@ -1586,7 +1551,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                           ),
                           const SizedBox(height: 20),
 
-                          // ── Branch selector ──
+                          // ── Branch selector dropdown ──
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1743,12 +1708,14 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             capturedLat: capturedLat,
                             capturedLng: capturedLng,
                             gpsTimestamp: gpsTimestamp,
-                            onVerify: _onVerifyTapped, // sync, never null
-                            verifyEnabled: selectedBranch != null,
+                            onVerify: selectedBranch != null
+                                ? _requestGps
+                                : null,
                           ),
 
                           const SizedBox(height: 14),
 
+                          // ── Selfie (shown after GPS verified) ──
                           if (gpsState == GpsState.granted) ...[
                             GestureDetector(
                               onTap: () => setState(() => selfieOk = !selfieOk),
@@ -1791,6 +1758,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             const SizedBox(height: 14),
                           ],
 
+                          // ── Clock In button ──
                           _ClockInButton(
                             gpsState: gpsState,
                             selfieOk: selfieOk,
@@ -1805,6 +1773,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
 
                   const SizedBox(height: 16),
 
+                  // ── Fortnight summary ──
                   raisedCard(
                     radius: 16,
                     child: Padding(
@@ -1862,8 +1831,8 @@ class _GpsPanel extends StatelessWidget {
   final String gpsError;
   final double? capturedLat, capturedLng;
   final DateTime? gpsTimestamp;
-  final VoidCallback onVerify; // always non-null sync callback
-  final bool verifyEnabled; // true only when a branch is selected
+  final VoidCallback onVerify;
+  final bool verifyEnabled;
 
   const _GpsPanel({
     required this.gpsState,
@@ -1881,40 +1850,41 @@ class _GpsPanel extends StatelessWidget {
     if (ts == null) return '';
     final h = ts.hour % 12 == 0 ? 12 : ts.hour % 12;
     final m = ts.minute.toString().padLeft(2, '0');
-    final sc = ts.second.toString().padLeft(2, '0');
+    final s = ts.second.toString().padLeft(2, '0');
     final p = ts.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m:$sc $p';
+    return '$h:$m:$s $p';
   }
 
   @override
   Widget build(BuildContext context) {
     switch (gpsState) {
       case GpsState.idle:
+        final canVerify = selectedBranch != null && onVerify != null;
         return GestureDetector(
-          onTap: verifyEnabled ? onVerify : null,
+          onTap: canVerify ? onVerify : null,
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
             decoration: BoxDecoration(
-              color: verifyEnabled ? cNavyMid : cSlate,
+              color: canVerify ? cNavyMid : cSlate,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: verifyEnabled ? cNavyLight : cBorder),
+              border: Border.all(color: canVerify ? cNavyLight : cBorder),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   Icons.my_location_rounded,
-                  color: verifyEnabled ? Colors.white : cMuted,
+                  color: canVerify ? Colors.white : cMuted,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  verifyEnabled
+                  canVerify
                       ? 'Tap to verify location'
                       : 'Select a branch first',
                   style: TextStyle(
-                    color: verifyEnabled ? Colors.white : cMuted,
+                    color: canVerify ? Colors.white : cMuted,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2181,11 +2151,9 @@ class _GpsPanel extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              Text(
-                gpsError.isNotEmpty
-                    ? gpsError
-                    : 'Please enable location access in your device Settings to clock in.',
-                style: const TextStyle(color: cRed, fontSize: 11, height: 1.4),
+              const Text(
+                'Please enable location access in your device Settings to clock in.',
+                style: TextStyle(color: cRed, fontSize: 11, height: 1.4),
               ),
               const SizedBox(height: 8),
               GestureDetector(
@@ -2269,7 +2237,7 @@ class _ClockInButton extends StatelessWidget {
       );
     }
 
-    final String label;
+    String label;
     if (!branchSelected) {
       label = 'Select a Branch First';
     } else if (gpsState != GpsState.granted) {
@@ -2546,8 +2514,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                             if (widget.clockInRecord != null) ...[
                               const SizedBox(height: 6),
                               Text(
-                                '${widget.clockInRecord!.lat.toStringAsFixed(5)}, '
-                                '${widget.clockInRecord!.lng.toStringAsFixed(5)}',
+                                '${widget.clockInRecord!.lat.toStringAsFixed(5)}, ${widget.clockInRecord!.lng.toStringAsFixed(5)}',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   color: cMuted,
