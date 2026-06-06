@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import CoreLocation
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {

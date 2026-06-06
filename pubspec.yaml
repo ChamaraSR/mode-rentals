@@ -12,7 +12,7 @@ dependencies:
     sdk: flutter
 
   # GPS / Location
-  geolocator: ^12.0.0
+  geolocator: ^10.1.0
 
   # Camera (selfie capture)
   camera: ^0.11.0
