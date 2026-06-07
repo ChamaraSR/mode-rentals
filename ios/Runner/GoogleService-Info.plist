@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyBVFGA-6kCgUUCWND2shzz9_ZrtOGX51vE</string>
+	<key>GCM_SENDER_ID</key>
+	<string>112935198214</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.example.modeRentals</string>
+	<key>PROJECT_ID</key>
+	<string>mode-rentals-staffshiftdata</string>
+	<key>STORAGE_BUCKET</key>
+	<string>mode-rentals-staffshiftdata.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:112935198214:ios:d637a794d47569a99d2d87</string>
+</dict>
+</plist>
