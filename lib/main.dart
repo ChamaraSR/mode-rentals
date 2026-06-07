@@ -49,6 +49,7 @@ class FirebaseService {
   static final _db      = FirebaseFirestore.instance;
   static final _storage = FirebaseStorage.instance;
 
+  /// Upload photo to Firebase Storage and return download URL
   static Future<String> uploadClockInPhoto({
     required File photo,
     required String userId,
@@ -65,6 +66,7 @@ class FirebaseService {
     return await uploadTask.ref.getDownloadURL();
   }
 
+  /// Save clock-in record to Firestore
   static Future<String> saveClockIn({
     required AppUser user,
     required Branch branch,
@@ -91,6 +93,7 @@ class FirebaseService {
     return doc.id;
   }
 
+  /// Update record on clock-out
   static Future<void> saveClockOut({
     required String recordId,
     required DateTime clockOutTime,
@@ -105,6 +108,7 @@ class FirebaseService {
     });
   }
 
+  /// Get all records for a user
   static Stream<QuerySnapshot> getUserRecords(String userEmail) {
     return _db
         .collection('clockin_records')
@@ -113,6 +117,7 @@ class FirebaseService {
         .snapshots();
   }
 
+  /// Get all records (for manager/admin)
   static Stream<QuerySnapshot> getAllRecords() {
     return _db
         .collection('clockin_records')
@@ -172,7 +177,7 @@ class ClockInRecord {
   final double lat, lng;
   final Branch branch;
   final File? photo;
-  String? firestoreDocId;
+  String? firestoreDocId;  // set after saving to Firestore
 
   ClockInRecord({
     required this.timestamp,
@@ -814,8 +819,10 @@ class _ClockInScreenState extends State<ClockInScreen> {
     setState(() => saving = true);
     try {
       final ts = gpsTimestamp ?? DateTime.now();
+      // 1. Upload photo to Firebase Storage
       final photoUrl = await FirebaseService.uploadClockInPhoto(
           photo: capturedPhoto!, userId: widget.user.email, timestamp: ts);
+      // 2. Save record to Firestore
       final docId = await FirebaseService.saveClockIn(
           user: widget.user, branch: detectedBranch!,
           lat: capturedLat!, lng: capturedLng!,
@@ -860,6 +867,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
             const SizedBox(height: 4),
             Text(_dateStr(), style: const TextStyle(color: cMuted, fontSize: 13)),
             const SizedBox(height: 20),
+            // Branch selector
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Row(children: [Icon(Icons.store_rounded, color: cNavyMid, size: 15),
                 SizedBox(width: 6), Text('Select your branch', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid))]),
@@ -887,11 +895,13 @@ class _ClockInScreenState extends State<ClockInScreen> {
                   const SizedBox(width: 5),
                   Expanded(child: Text(selectedBranch!.address, style: const TextStyle(fontSize: 11, color: cGreenText)))])]]),
             const SizedBox(height: 16),
+            // GPS Panel
             _GpsPanel(gpsState: gpsState, selectedBranch: selectedBranch, detectedBranch: detectedBranch,
                 gpsError: gpsError, capturedLat: capturedLat, capturedLng: capturedLng,
                 gpsTimestamp: gpsTimestamp, onVerify: _onVerifyTapped,
                 verifyEnabled: selectedBranch != null),
             const SizedBox(height: 14),
+            // Photo section
             if (gpsState == GpsState.granted) ...[
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Row(children: [Icon(Icons.camera_alt_rounded, color: cNavyMid, size: 15),
@@ -931,6 +941,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             const SizedBox(height: 2),
                             const Text('Camera only · no gallery upload', style: TextStyle(color: cMuted, fontSize: 10))])))]),
               const SizedBox(height: 14)],
+            // Clock In button
             saving
                 ? Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(color: cGreenLight, borderRadius: BorderRadius.circular(12), border: Border.all(color: cGreenBorder)),
@@ -1037,7 +1048,8 @@ class _GpsPanel extends StatelessWidget {
                       boxShadow: [BoxShadow(color: cOrange.withOpacity(0.35), blurRadius: 6, offset: const Offset(0, 2))]),
                   child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     Icon(Icons.refresh_rounded, color: Colors.white, size: 16), SizedBox(width: 6),
-                    Text('Retry GPS Check', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))])))]));
+                    Text('Retry GPS Check', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))])))])])
+;
       case GpsState.denied:
         return Container(padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: const Color(0xFFFDECEA), borderRadius: BorderRadius.circular(10),
