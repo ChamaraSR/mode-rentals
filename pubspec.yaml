@@ -11,20 +11,17 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Firebase core
-  firebase_core: ^3.6.0
-
-  # Firestore — store clock-in records
-  cloud_firestore: ^5.4.4
-
-  # Firebase Storage — store clock-in photos
-  firebase_storage: ^12.3.3
+  # Supabase — database + file storage
+  supabase_flutter: ^2.5.6
 
   # GPS / Location
   geolocator: ^10.1.0
 
-  # Camera — front-camera selfie, no gallery option
+  # Camera — front-camera only
   image_picker: ^1.1.2
+
+  # HTTP for multipart upload
+  http: ^1.2.1
 
   # Date formatting
   intl: ^0.19.0

@@ -2,17 +2,22 @@ import 'package:flutter/material.dart';
 import 'dart:async' show TimeoutException;
 import 'dart:io' show File;
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
+// ─── Supabase credentials ──────────────────────────────────
+const String kSupabaseUrl     = 'https://lxhlodhnlmwyjjwslaln.supabase.co';
+const String kSupabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx4aGxvZGhubG13eWpqd3NsYWxuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5OTcxMTgsImV4cCI6MjA5NjU3MzExOH0.yH-wHSiBXZqedwgEac2OYIuYo2qVa0QlJkim2f1jtUI';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseAnonKey);
   runApp(const ModeRentalsApp());
 }
+
+// ─── Supabase client shorthand ─────────────────────────────
+final _supabase = Supabase.instance.client;
 
 // ─── Colours ───────────────────────────────────────────────
 const Color cNavy        = Color(0xFF0F172A);
@@ -44,30 +49,26 @@ const Color cBlue        = Color(0xFF1D4ED8);
 const Color cOrange      = Color(0xFFEA580C);
 const Color cOrangeDark  = Color(0xFF9A3412);
 
-// ─── Firebase Service ──────────────────────────────────────
-class FirebaseService {
-  static final _db      = FirebaseFirestore.instance;
-  static final _storage = FirebaseStorage.instance;
+// ─── Supabase Service ──────────────────────────────────────
+class SupabaseService {
 
-  /// Upload photo to Firebase Storage and return download URL
-  static Future<String> uploadClockInPhoto({
+  static Future<String> uploadPhoto({
     required File photo,
-    required String userId,
+    required String userEmail,
     required DateTime timestamp,
   }) async {
-    final fileName =
-        '${userId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}'
-        '_${timestamp.millisecondsSinceEpoch}.jpg';
-    final ref = _storage.ref().child('clockin_photos/$fileName');
-    final uploadTask = await ref.putFile(
-      photo,
-      SettableMetadata(contentType: 'image/jpeg'),
+    final safe     = userEmail.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+    final fileName = '${safe}_${timestamp.millisecondsSinceEpoch}.jpg';
+    final path     = 'clockin_photos/$fileName';
+    final bytes    = await photo.readAsBytes();
+    await _supabase.storage.from('clockin-photos').uploadBinary(
+      path, bytes,
+      fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
     );
-    return await uploadTask.ref.getDownloadURL();
+    return _supabase.storage.from('clockin-photos').getPublicUrl(path);
   }
 
-  /// Save clock-in record to Firestore
-  static Future<String> saveClockIn({
+  static Future<int> saveClockIn({
     required AppUser user,
     required Branch branch,
     required double lat,
@@ -75,92 +76,73 @@ class FirebaseService {
     required DateTime clockInTime,
     required String photoUrl,
   }) async {
-    final doc = await _db.collection('clockin_records').add({
-      'userId'        : user.email,
-      'userName'      : user.name,
-      'userRole'      : user.role,
-      'branchName'    : branch.name,
-      'branchAddress' : branch.address,
-      'lat'           : lat,
-      'lng'           : lng,
-      'clockInTime'   : Timestamp.fromDate(clockInTime),
-      'photoUrl'      : photoUrl,
-      'shiftStatus'   : 'active',
-      'clockOutTime'  : null,
-      'shiftNotes'    : '',
-      'createdAt'     : FieldValue.serverTimestamp(),
-    });
-    return doc.id;
+    final res = await _supabase.from('shift_records').insert({
+      'user_email'     : user.email,
+      'user_name'      : user.name,
+      'user_role'      : user.role,
+      'branch_name'    : branch.name,
+      'branch_address' : branch.address,
+      'lat'            : lat,
+      'lng'            : lng,
+      'clock_in_time'  : clockInTime.toIso8601String(),
+      'photo_url'      : photoUrl,
+      'shift_status'   : 'active',
+    }).select('id').single();
+    return res['id'] as int;
   }
 
-  /// Update record on clock-out
   static Future<void> saveClockOut({
-    required String recordId,
+    required int recordId,
     required DateTime clockOutTime,
     required String notes,
     required double shiftHours,
   }) async {
-    await _db.collection('clockin_records').doc(recordId).update({
-      'clockOutTime' : Timestamp.fromDate(clockOutTime),
-      'shiftStatus'  : 'completed',
-      'shiftNotes'   : notes,
-      'shiftHours'   : shiftHours,
-    });
+    await _supabase.from('shift_records').update({
+      'clock_out_time' : clockOutTime.toIso8601String(),
+      'shift_status'   : 'completed',
+      'shift_notes'    : notes,
+      'shift_hours'    : shiftHours,
+    }).eq('id', recordId);
   }
 
-  /// Get all records for a user
-  static Stream<QuerySnapshot> getUserRecords(String userEmail) {
-    return _db
-        .collection('clockin_records')
-        .where('userId', isEqualTo: userEmail)
-        .orderBy('clockInTime', descending: true)
-        .snapshots();
+  static Future<List<Map<String, dynamic>>> getUserRecords(String email) async {
+    final res = await _supabase
+        .from('shift_records')
+        .select()
+        .eq('user_email', email)
+        .order('clock_in_time', ascending: false);
+    return List<Map<String, dynamic>>.from(res as List);
   }
 
-  /// Get all records (for manager/admin)
-  static Stream<QuerySnapshot> getAllRecords() {
-    return _db
-        .collection('clockin_records')
-        .orderBy('clockInTime', descending: true)
-        .snapshots();
+  static Future<List<Map<String, dynamic>>> getAllRecords() async {
+    final res = await _supabase
+        .from('shift_records')
+        .select()
+        .order('clock_in_time', ascending: false);
+    return List<Map<String, dynamic>>.from(res as List);
   }
 }
 
 // ─── GPS Branch Model ──────────────────────────────────────
 class Branch {
-  final String name;
-  final String address;
-  final double lat;
-  final double lng;
-  final double radiusMeters;
-  const Branch({
-    required this.name,
-    required this.address,
-    required this.lat,
-    required this.lng,
-    this.radiusMeters = 1000,
-  });
+  final String name, address;
+  final double lat, lng, radiusMeters;
+  const Branch({required this.name, required this.address,
+      required this.lat, required this.lng, this.radiusMeters = 1000});
 }
 
 const List<Branch> kBranches = [
-  Branch(
-    name: 'Auckland Airport',
-    address: '110 Montgomerie Rd, Airport Oaks, Mangere, Auckland 2022',
-    lat: -37.00468, lng: 174.78486, radiusMeters: 1000,
-  ),
-  Branch(
-    name: 'Auckland City',
-    address: '26 Te Taou Crescent, Auckland Central, Auckland 1010',
-    lat: -36.84820, lng: 174.76330, radiusMeters: 1000,
-  ),
-  Branch(
-    name: 'Epsom',
-    address: '69 Onslow Avenue, Epsom, Auckland 1023',
-    lat: -36.88750, lng: 174.77130, radiusMeters: 1000,
-  ),
+  Branch(name: 'Auckland Airport',
+      address: '110 Montgomerie Rd, Airport Oaks, Mangere, Auckland 2022',
+      lat: -37.00468, lng: 174.78486, radiusMeters: 1000),
+  Branch(name: 'Auckland City',
+      address: '26 Te Taou Crescent, Auckland Central, Auckland 1010',
+      lat: -36.84820, lng: 174.76330, radiusMeters: 1000),
+  Branch(name: 'Epsom',
+      address: '69 Onslow Avenue, Epsom, Auckland 1023',
+      lat: -36.88750, lng: 174.77130, radiusMeters: 1000),
 ];
 
-// ─── GPS Helper ────────────────────────────────────────────
 double haversineDistance(double lat1, double lng1, double lat2, double lng2) {
   const R = 6371000.0;
   final dLat = (lat2 - lat1) * pi / 180;
@@ -177,16 +159,9 @@ class ClockInRecord {
   final double lat, lng;
   final Branch branch;
   final File? photo;
-  String? firestoreDocId;  // set after saving to Firestore
-
-  ClockInRecord({
-    required this.timestamp,
-    required this.lat,
-    required this.lng,
-    required this.branch,
-    this.photo,
-    this.firestoreDocId,
-  });
+  int? supabaseId;
+  ClockInRecord({required this.timestamp, required this.lat,
+      required this.lng, required this.branch, this.photo, this.supabaseId});
 }
 
 class AppUser {
@@ -230,11 +205,9 @@ class _ModeRentalsAppState extends State<ModeRentalsApp> {
         'forgot'  => ForgotScreen(onBack: goLogin),
         'staff'   => StaffHome(user: currentUser!, onLogout: logout),
         'manager' => ManagerHome(user: currentUser!, users: users, onLogout: logout),
-        'admin'   => AdminHome(user: currentUser!, users: users,
-            onAddUser: addUser, onLogout: logout),
+        'admin'   => AdminHome(user: currentUser!, users: users, onAddUser: addUser, onLogout: logout),
         _         => LoginScreen(users: users, onLogin: login, onForgot: goForgot),
-      },
-    )),
+      })),
   );
 }
 
@@ -254,17 +227,18 @@ Widget _bgGradient({required Widget child}) => Container(
 Widget raisedCard({required Widget child, double radius = 12}) => Container(
   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(radius),
     border: Border.all(color: cBorder),
-    boxShadow: [
-      BoxShadow(color: cNavy.withOpacity(0.07), blurRadius: 8, offset: const Offset(0, 3)),
+    boxShadow: [BoxShadow(color: cNavy.withOpacity(0.07), blurRadius: 8, offset: const Offset(0, 3)),
       const BoxShadow(color: cBorder, blurRadius: 0, offset: Offset(0, 3)),
-      BoxShadow(color: Colors.white.withOpacity(0.9), blurRadius: 0, offset: const Offset(0, 1)),
-    ]),
+      BoxShadow(color: Colors.white.withOpacity(0.9), blurRadius: 0, offset: const Offset(0, 1))]),
   child: child);
 
-String _fmtDateTime(DateTime dt) {
+String _fmtDT(String? iso) {
+  if (iso == null) return '--';
+  final dt = DateTime.tryParse(iso)?.toLocal();
+  if (dt == null) return '--';
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-  final m = dt.minute.toString().padLeft(2, '0');
+  final m = dt.minute.toString().padLeft(2,'0');
   final p = dt.hour < 12 ? 'AM' : 'PM';
   return '${dt.day} ${months[dt.month-1]} ${dt.year}  $h:$m $p';
 }
@@ -286,21 +260,16 @@ class AppHeader extends StatelessWidget {
           fontWeight: FontWeight.w900, letterSpacing: -0.5)),
       const SizedBox(width: 2),
       const Padding(padding: EdgeInsets.only(bottom: 8),
-          child: Text('TM', style: TextStyle(color: Color(0xFF818CF8),
-              fontSize: 8, fontWeight: FontWeight.w700))),
+          child: Text('TM', style: TextStyle(color: Color(0xFF818CF8), fontSize: 8, fontWeight: FontWeight.w700))),
       const Spacer(),
       if (onLogout != null)
         GestureDetector(onTap: onLogout,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(color: cRedBg, border: Border.all(color: cRedBorder),
                 borderRadius: BorderRadius.circular(8)),
             child: const Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.logout_rounded, color: cRedLight, size: 14),
-              SizedBox(width: 5),
-              Text('Sign Out', style: TextStyle(color: cRedLight,
-                  fontSize: 11, fontWeight: FontWeight.w700)),
-            ]))),
+              Icon(Icons.logout_rounded, color: cRedLight, size: 14), SizedBox(width: 5),
+              Text('Sign Out', style: TextStyle(color: cRedLight, fontSize: 11, fontWeight: FontWeight.w700))]))),
     ]));
 }
 
@@ -310,25 +279,21 @@ class RoleBadge extends StatelessWidget {
   const RoleBadge(this.role, {super.key});
   @override
   Widget build(BuildContext context) {
-    final styles = {'Admin':[cAmberLight,cAmberText],'Manager':[cVioletLight,cVioletText],
-        'Staff':[cGreenLight,cGreenText]};
-    final s = styles[role] ?? [Colors.grey.shade200, Colors.grey.shade700];
+    final s = {'Admin':[cAmberLight,cAmberText],'Manager':[cVioletLight,cVioletText],
+        'Staff':[cGreenLight,cGreenText]}[role] ?? [Colors.grey.shade200, Colors.grey.shade700];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [s[0] as Color, (s[0] as Color).withOpacity(0.7)]),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: (s[1] as Color).withOpacity(0.15),
-            blurRadius: 4, offset: const Offset(0, 1))]),
-      child: Text(role, style: TextStyle(color: s[1] as Color,
-          fontWeight: FontWeight.w700, fontSize: 11)));
+        boxShadow: [BoxShadow(color: (s[1] as Color).withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 1))]),
+      child: Text(role, style: TextStyle(color: s[1] as Color, fontWeight: FontWeight.w700, fontSize: 11)));
   }
 }
 
 class StyledInput extends StatelessWidget {
   final String hint; final TextEditingController ctrl;
-  final bool obscure; final Widget? suffix;
-  final TextInputType keyboard;
+  final bool obscure; final Widget? suffix; final TextInputType keyboard;
   const StyledInput({super.key, required this.hint, required this.ctrl,
       this.obscure=false, this.suffix, this.keyboard=TextInputType.text});
   @override
@@ -336,12 +301,10 @@ class StyledInput extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 12),
     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10),
         border: Border.all(color: cBorder),
-        boxShadow: [BoxShadow(color: cNavy.withOpacity(0.06),
-            blurRadius: 4, offset: const Offset(0, 2))]),
+        boxShadow: [BoxShadow(color: cNavy.withOpacity(0.06), blurRadius: 4, offset: const Offset(0, 2))]),
     child: TextField(controller: ctrl, obscureText: obscure, keyboardType: keyboard,
       style: const TextStyle(fontSize: 14, color: cText),
-      decoration: InputDecoration(hintText: hint,
-          hintStyle: const TextStyle(color: cMuted, fontSize: 14),
+      decoration: InputDecoration(hintText: hint, hintStyle: const TextStyle(color: cMuted, fontSize: 14),
           suffixIcon: suffix,
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: InputBorder.none)));
@@ -351,10 +314,8 @@ class InputLabel extends StatelessWidget {
   final String text;
   const InputLabel(this.text, {super.key});
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 5),
-    child: Text(text, style: const TextStyle(fontSize: 12,
-        fontWeight: FontWeight.w600, color: Color(0xFF475569))));
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 5),
+    child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))));
 }
 
 class PrimaryButton extends StatelessWidget {
@@ -364,18 +325,14 @@ class PrimaryButton extends StatelessWidget {
       this.colors = const [Color(0xFF312E81), cIndigo], this.shadowColor = cIndigoDark});
   @override
   Widget build(BuildContext context) => GestureDetector(onTap: onTap,
-    child: Container(width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 14),
+    child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: colors,
-            begin: Alignment.topLeft, end: Alignment.bottomRight),
+        gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: colors.last.withOpacity(0.45),
-            blurRadius: 10, offset: const Offset(0, 4)),
+        boxShadow: [BoxShadow(color: colors.last.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 4)),
           BoxShadow(color: shadowColor, blurRadius: 0, offset: const Offset(0, 3))]),
       child: Text(label, textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white,
-              fontWeight: FontWeight.w700, fontSize: 15))));
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15))));
 }
 
 class ErrorBox extends StatelessWidget {
@@ -385,13 +342,10 @@ class ErrorBox extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(color: const Color(0xFFFDECEA),
-        border: Border.all(color: cRed.withOpacity(0.4)),
-        borderRadius: BorderRadius.circular(10)),
+        border: Border.all(color: cRed.withOpacity(0.4)), borderRadius: BorderRadius.circular(10)),
     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Icon(Icons.warning_amber_rounded, color: cRed, size: 18),
-      const SizedBox(width: 10),
-      Expanded(child: Text(msg, style: const TextStyle(color: cRed,
-          fontSize: 12, height: 1.5)))]));
+      const Icon(Icons.warning_amber_rounded, color: cRed, size: 18), const SizedBox(width: 10),
+      Expanded(child: Text(msg, style: const TextStyle(color: cRed, fontSize: 12, height: 1.5)))]));
 }
 
 class SuccessBox extends StatelessWidget {
@@ -402,27 +356,22 @@ class SuccessBox extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(color: cGreenLight, border: Border.all(color: cGreenBorder),
         borderRadius: BorderRadius.circular(8)),
-    child: Row(children: [
-      const Icon(Icons.check_circle_outline, color: cGreen, size: 16),
+    child: Row(children: [const Icon(Icons.check_circle_outline, color: cGreen, size: 16),
       const SizedBox(width: 8),
       Expanded(child: Text(msg, style: const TextStyle(color: cGreenText, fontSize: 12)))]));
 }
 
 class StatCard extends StatelessWidget {
   final IconData icon; final String label; final int value;
-  const StatCard({super.key, required this.icon,
-      required this.label, required this.value});
+  const StatCard({super.key, required this.icon, required this.label, required this.value});
   @override
-  Widget build(BuildContext context) => raisedCard(child: Padding(
-    padding: const EdgeInsets.all(14),
+  Widget build(BuildContext context) => raisedCard(child: Padding(padding: const EdgeInsets.all(14),
     child: Row(children: [
-      Container(width: 40, height: 40, decoration: BoxDecoration(
-          color: cSlate, borderRadius: BorderRadius.circular(10)),
+      Container(width: 40, height: 40, decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(10)),
           child: Icon(icon, color: cNavyMid, size: 22)),
       const SizedBox(width: 12),
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('$value', style: const TextStyle(fontWeight: FontWeight.w900,
-            fontSize: 22, color: cNavyMid)),
+        Text('$value', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: cNavyMid)),
         Text(label, style: const TextStyle(fontSize: 11, color: cMuted))])])));
 }
 
@@ -436,50 +385,37 @@ class UserRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(children: [
         Container(width: 36, height: 36,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF312E81), cIndigo]),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [BoxShadow(color: cIndigo.withOpacity(0.35),
-                blurRadius: 6, offset: const Offset(0, 2))]),
+          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF312E81), cIndigo]),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [BoxShadow(color: cIndigo.withOpacity(0.35), blurRadius: 6, offset: const Offset(0, 2))]),
           child: Center(child: Text(u.name[0].toUpperCase(),
-              style: const TextStyle(color: Colors.white,
-                  fontWeight: FontWeight.w700, fontSize: 14)))),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)))),
         const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700,
-              fontSize: 13, color: cText), overflow: TextOverflow.ellipsis),
-          Text(u.email, style: const TextStyle(fontSize: 11, color: cMuted),
-              overflow: TextOverflow.ellipsis)])),
+          Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cText), overflow: TextOverflow.ellipsis),
+          Text(u.email, style: const TextStyle(fontSize: 11, color: cMuted), overflow: TextOverflow.ellipsis)])),
         if (showRole) ...[const SizedBox(width: 6), RoleBadge(u.role)]]))));
 }
 
 class _SummaryRow extends StatelessWidget {
   final String label, value; final bool bold; final Color? valueColor;
-  const _SummaryRow({required this.label, required this.value,
-      required this.bold, this.valueColor});
+  const _SummaryRow({required this.label, required this.value, required this.bold, this.valueColor});
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      Text(label, style: TextStyle(fontSize: 13, color: bold ? cText : cMuted,
-          fontWeight: bold ? FontWeight.w700 : FontWeight.w400)),
-      Text(value, style: TextStyle(fontSize: 13,
-          fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
-          color: valueColor ?? (bold ? cText : cNavyMid)))]);
+  Widget build(BuildContext context) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+    Text(label, style: TextStyle(fontSize: 13, color: bold ? cText : cMuted,
+        fontWeight: bold ? FontWeight.w700 : FontWeight.w400)),
+    Text(value, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
+        color: valueColor ?? (bold ? cText : cNavyMid)))]);
 }
 
 // ─── LOGIN ─────────────────────────────────────────────────
 class LoginScreen extends StatefulWidget {
-  final List<AppUser> users;
-  final void Function(AppUser) onLogin;
-  final VoidCallback onForgot;
-  const LoginScreen({super.key, required this.users,
-      required this.onLogin, required this.onForgot});
+  final List<AppUser> users; final void Function(AppUser) onLogin; final VoidCallback onForgot;
+  const LoginScreen({super.key, required this.users, required this.onLogin, required this.onForgot});
   @override State<LoginScreen> createState() => _LoginScreenState();
 }
 class _LoginScreenState extends State<LoginScreen> {
-  final eCtrl = TextEditingController();
-  final pCtrl = TextEditingController();
+  final eCtrl = TextEditingController(), pCtrl = TextEditingController();
   bool showPw = false; String err = '';
   String? _validate() {
     if (eCtrl.text.trim().isEmpty) return 'Email is required.';
@@ -490,48 +426,39 @@ class _LoginScreenState extends State<LoginScreen> {
   }
   void _login() {
     final e = _validate(); if (e != null) { setState(() => err = e); return; }
-    final m = widget.users.where((u) =>
-        u.email == eCtrl.text.trim() && u.password == pCtrl.text).firstOrNull;
+    final m = widget.users.where((u) => u.email == eCtrl.text.trim() && u.password == pCtrl.text).firstOrNull;
     if (m == null) { setState(() => err = 'Incorrect email or password.'); return; }
     widget.onLogin(m);
   }
   @override
   Widget build(BuildContext context) => Column(children: [
     const AppHeader(),
-    Expanded(child: _bgGradient(child: SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+    Expanded(child: _bgGradient(child: SingleChildScrollView(padding: const EdgeInsets.all(24),
       child: Column(children: [
         const SizedBox(height: 10),
         Container(width: 76, height: 76,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [cNavyMid, cNavyLight],
-                begin: Alignment.topLeft, end: Alignment.bottomRight),
+          decoration: BoxDecoration(gradient: const LinearGradient(colors: [cNavyMid, cNavyLight],
+              begin: Alignment.topLeft, end: Alignment.bottomRight),
             borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: cNavy.withOpacity(0.4),
-                blurRadius: 16, offset: const Offset(0, 6))]),
+            boxShadow: [BoxShadow(color: cNavy.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 6))]),
           child: const Center(child: Text('🚗', style: TextStyle(fontSize: 38)))),
         const SizedBox(height: 22),
-        const Text('Welcome to Mode', style: TextStyle(fontWeight: FontWeight.w800,
-            fontSize: 24, color: cText)),
+        const Text('Welcome to Mode', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 24, color: cText)),
         const SizedBox(height: 6),
-        const Text('Sign in to your account',
-            style: TextStyle(color: cMuted, fontSize: 14)),
+        const Text('Sign in to your account', style: TextStyle(color: cMuted, fontSize: 14)),
         const SizedBox(height: 28),
         StyledInput(hint: 'Email address', ctrl: eCtrl, keyboard: TextInputType.emailAddress),
         StyledInput(hint: 'Password', ctrl: pCtrl, obscure: !showPw,
-          suffix: IconButton(icon: Icon(showPw ? Icons.visibility_off : Icons.visibility,
-              color: cMuted, size: 20),
-            onPressed: () => setState(() => showPw = !showPw))),
+          suffix: IconButton(icon: Icon(showPw ? Icons.visibility_off : Icons.visibility, color: cMuted, size: 20),
+              onPressed: () => setState(() => showPw = !showPw))),
         if (err.isNotEmpty) ErrorBox(err),
         PrimaryButton(label: 'Sign in', onTap: _login),
         const SizedBox(height: 16),
         GestureDetector(onTap: widget.onForgot,
-          child: const Text('Forgot password?', style: TextStyle(color: cPurple,
-              fontWeight: FontWeight.w700, fontSize: 13,
-              decoration: TextDecoration.underline))),
+          child: const Text('Forgot password?', style: TextStyle(color: cPurple, fontWeight: FontWeight.w700,
+              fontSize: 13, decoration: TextDecoration.underline))),
         const SizedBox(height: 32),
-        const Text('Secured · Privacy Act 2020 compliant',
-            style: TextStyle(color: cMuted, fontSize: 11))]))));
+        const Text('Secured · Privacy Act 2020 compliant', style: TextStyle(color: cMuted, fontSize: 11))]))));
 }
 
 // ─── FORGOT PASSWORD ───────────────────────────────────────
@@ -551,11 +478,9 @@ class _ForgotScreenState extends State<ForgotScreen> {
   @override
   Widget build(BuildContext context) => Column(children: [
     const AppHeader(),
-    Expanded(child: _bgGradient(child: SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+    Expanded(child: _bgGradient(child: SingleChildScrollView(padding: const EdgeInsets.all(24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        TextButton.icon(onPressed: widget.onBack,
-            icon: const Icon(Icons.arrow_back_rounded, size: 16),
+        TextButton.icon(onPressed: widget.onBack, icon: const Icon(Icons.arrow_back_rounded, size: 16),
             label: const Text('Back to Sign in', style: TextStyle(fontWeight: FontWeight.w700)),
             style: TextButton.styleFrom(foregroundColor: cPurple, padding: EdgeInsets.zero)),
         const SizedBox(height: 20),
@@ -576,8 +501,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
           PrimaryButton(label: 'Send Reset Link', onTap: _send,
               colors: [cPurple, const Color(0xFF4F46E5)], shadowColor: const Color(0xFF3730A3)),
         ] else Container(padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: cGreenLight, border: Border.all(color: cGreenBorder),
-              borderRadius: BorderRadius.circular(14)),
+          decoration: BoxDecoration(color: cGreenLight, border: Border.all(color: cGreenBorder), borderRadius: BorderRadius.circular(14)),
           child: Column(children: [
             Container(width: 52, height: 52,
               decoration: BoxDecoration(color: cGreen.withOpacity(0.15), borderRadius: BorderRadius.circular(26)),
@@ -589,7 +513,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
                 style: const TextStyle(fontSize: 12, color: cGreenText), textAlign: TextAlign.center),
             const SizedBox(height: 16),
             PrimaryButton(label: 'Back to Sign in', onTap: widget.onBack,
-                colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)]))]))));
+                colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)])])))));
 }
 
 // ─── STAFF HOME ────────────────────────────────────────────
@@ -601,7 +525,6 @@ class StaffHome extends StatefulWidget {
 class _StaffHomeState extends State<StaffHome> {
   String? subScreen;
   ClockInRecord? lastClockIn;
-
   @override
   Widget build(BuildContext context) {
     if (subScreen == 'clockin')
@@ -616,22 +539,18 @@ class _StaffHomeState extends State<StaffHome> {
           onClockedOut: () => setState(() { lastClockIn = null; subScreen = null; }));
     if (subScreen == 'timesheet')
       return TimesheetScreen(user: widget.user,
-          onBack: () => setState(() => subScreen = null),
-          onLogout: widget.onLogout);
+          onBack: () => setState(() => subScreen = null), onLogout: widget.onLogout);
     if (subScreen == 'history')
       return ShiftHistoryScreen(user: widget.user,
-          onBack: () => setState(() => subScreen = null),
-          onLogout: widget.onLogout);
+          onBack: () => setState(() => subScreen = null), onLogout: widget.onLogout);
 
     return Column(children: [
       AppHeader(onLogout: widget.onLogout),
-      Expanded(child: _bgGradient(child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+      Expanded(child: _bgGradient(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(width: double.infinity, padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [cNavyMid, cNavy],
-                  begin: Alignment.topLeft, end: Alignment.bottomRight),
+              gradient: const LinearGradient(colors: [cNavyMid, cNavy], begin: Alignment.topLeft, end: Alignment.bottomRight),
               borderRadius: BorderRadius.circular(16),
               boxShadow: [BoxShadow(color: cNavy.withOpacity(0.35), blurRadius: 12, offset: const Offset(0, 4)),
                 const BoxShadow(color: cNavy, blurRadius: 0, offset: Offset(0, 4))]),
@@ -639,34 +558,29 @@ class _StaffHomeState extends State<StaffHome> {
               Text('${_greeting()}, ${widget.user.name.split(' ').first} 👋',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20)),
               const SizedBox(height: 4),
-              const Text('Mode Rentals · New Zealand',
-                  style: TextStyle(color: Colors.white60, fontSize: 13))])),
+              const Text('Mode Rentals · New Zealand', style: TextStyle(color: Colors.white60, fontSize: 13))])),
           const SizedBox(height: 24),
           const Text('What would you like to do?',
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: cNavyLight)),
           const SizedBox(height: 14),
           _NavTile(icon: Icons.login_rounded, label: 'Clock-In',
               subtitle: 'Start your shift & verify location',
-              gradient: [const Color(0xFF065F46), cGreen],
-              shadowColor: const Color(0xFF064E3B),
+              gradient: [const Color(0xFF065F46), cGreen], shadowColor: const Color(0xFF064E3B),
               onTap: () => setState(() => subScreen = 'clockin')),
           const SizedBox(height: 12),
           _NavTile(icon: Icons.logout_rounded, label: 'Clock-Out & Shift Summary',
               subtitle: 'End your shift & review hours',
-              gradient: [const Color(0xFF7F1D1D), cRedDark],
-              shadowColor: const Color(0xFF450A0A),
+              gradient: [const Color(0xFF7F1D1D), cRedDark], shadowColor: const Color(0xFF450A0A),
               onTap: () => setState(() => subScreen = 'clockout')),
           const SizedBox(height: 12),
           _NavTile(icon: Icons.calendar_month_rounded, label: 'Fortnightly Timesheet',
               subtitle: 'View & submit your timesheet',
-              gradient: [const Color(0xFF1E3A8A), cBlue],
-              shadowColor: const Color(0xFF1E3A5F),
+              gradient: [const Color(0xFF1E3A8A), cBlue], shadowColor: const Color(0xFF1E3A5F),
               onTap: () => setState(() => subScreen = 'timesheet')),
           const SizedBox(height: 12),
           _NavTile(icon: Icons.history_rounded, label: 'My Shift History',
-              subtitle: 'View all your past clock-in records',
-              gradient: [const Color(0xFF4A1D96), cPurple],
-              shadowColor: const Color(0xFF2E1065),
+              subtitle: 'View your past clock-in records',
+              gradient: [const Color(0xFF4A1D96), cPurple], shadowColor: const Color(0xFF2E1065),
               onTap: () => setState(() => subScreen = 'history')),
         ])))),
     ]);
@@ -675,8 +589,7 @@ class _StaffHomeState extends State<StaffHome> {
 
 class _NavTile extends StatelessWidget {
   final IconData icon; final String label, subtitle;
-  final List<Color> gradient; final Color shadowColor;
-  final VoidCallback onTap;
+  final List<Color> gradient; final Color shadowColor; final VoidCallback onTap;
   const _NavTile({required this.icon, required this.label, required this.subtitle,
       required this.gradient, required this.shadowColor, required this.onTap});
   @override
@@ -721,17 +634,14 @@ class _ClockInScreenState extends State<ClockInScreen> {
   double? capturedLat, capturedLng;
   DateTime? gpsTimestamp;
   File? capturedPhoto;
-  bool clockedIn = false;
-  bool saving = false;
+  bool clockedIn = false, saving = false;
   String gpsError = '';
   final ImagePicker _picker = ImagePicker();
 
   String _timeStr() {
     final t = TimeOfDay.now();
     final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
-    final m = t.minute.toString().padLeft(2, '0');
-    final p = t.period == DayPeriod.am ? 'AM' : 'PM';
-    return '$h:$m $p';
+    return '${h.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')} ${t.period == DayPeriod.am ? 'AM' : 'PM'}';
   }
 
   String _dateStr() {
@@ -741,21 +651,17 @@ class _ClockInScreenState extends State<ClockInScreen> {
     return '${days[now.weekday-1]} ${now.day} ${months[now.month-1]} ${now.year}';
   }
 
-  void _onBranchSelected(Branch? b) {
-    setState(() {
-      selectedBranch = b; gpsState = GpsState.idle; detectedBranch = null;
-      capturedLat = null; capturedLng = null; gpsTimestamp = null;
-      gpsError = ''; capturedPhoto = null; clockedIn = false;
-    });
-  }
+  void _onBranchSelected(Branch? b) => setState(() {
+    selectedBranch = b; gpsState = GpsState.idle; detectedBranch = null;
+    capturedLat = null; capturedLng = null; gpsTimestamp = null;
+    gpsError = ''; capturedPhoto = null; clockedIn = false;
+  });
 
   Future<void> _takePhoto() async {
     try {
-      final XFile? photo = await _picker.pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: CameraDevice.front,
-        imageQuality: 80, maxWidth: 800);
-      if (photo != null && mounted) setState(() => capturedPhoto = File(photo.path));
+      final XFile? x = await _picker.pickImage(source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.front, imageQuality: 80, maxWidth: 800);
+      if (x != null && mounted) setState(() => capturedPhoto = File(x.path));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Camera error: $e'), backgroundColor: cRed));
@@ -771,46 +677,40 @@ class _ClockInScreenState extends State<ClockInScreen> {
   Future<void> _requestGps() async {
     if (selectedBranch == null) { if (mounted) setState(() => gpsState = GpsState.idle); return; }
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!mounted) return;
-      if (!serviceEnabled) {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!mounted) return;
         setState(() { gpsState = GpsState.denied;
-          gpsError = 'Location services are disabled. Go to Settings → Privacy → Location Services.'; });
-        return;
+          gpsError = 'Location services are disabled.\nGo to Settings → Privacy → Location Services.'; }); return;
       }
       LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
       if (!mounted) return;
-      if (perm == LocationPermission.denied) { perm = await Geolocator.requestPermission(); if (!mounted) return; }
       if (perm == LocationPermission.deniedForever) {
         setState(() { gpsState = GpsState.denied;
-          gpsError = 'Location permission permanently denied. Go to Settings → Mode Rentals → Location.'; });
-        return;
+          gpsError = 'Location permanently denied.\nGo to Settings → Mode Rentals → Location.'; }); return;
       }
       if (perm == LocationPermission.denied) {
         setState(() { gpsState = GpsState.denied; gpsError = 'Location permission denied. Please allow and retry.'; }); return;
       }
-      final Position p = await Geolocator.getCurrentPosition(
+      final p = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 20));
       if (!mounted) return;
       final dist = haversineDistance(p.latitude, p.longitude, selectedBranch!.lat, selectedBranch!.lng);
       if (dist <= selectedBranch!.radiusMeters) {
         setState(() { gpsState = GpsState.granted; detectedBranch = selectedBranch;
-          capturedLat = p.latitude; capturedLng = p.longitude;
-          gpsTimestamp = DateTime.now(); gpsError = ''; });
+          capturedLat = p.latitude; capturedLng = p.longitude; gpsTimestamp = DateTime.now(); gpsError = ''; });
       } else {
         setState(() { gpsState = GpsState.outOfRange; capturedLat = p.latitude; capturedLng = p.longitude;
           gpsError = 'You are ${(dist/1000).toStringAsFixed(2)} km from "${selectedBranch!.name}".\n\n'
-              'Clock-in requires you to be within 1000 m. Please ensure you are physically at the branch.\n\n'
-              'Contact your manager if you believe this is an error.'; });
+              'Clock-in requires you to be within 1000 m of the selected branch.\n\n'
+              'Please ensure you are physically at the branch or contact your manager.'; });
       }
     } on TimeoutException {
       if (!mounted) return;
-      setState(() { gpsState = GpsState.outOfRange;
-        gpsError = 'GPS timed out. Move to an open area and tap "Retry GPS Check".'; });
+      setState(() { gpsState = GpsState.outOfRange; gpsError = 'GPS timed out. Move to an open area and retry.'; });
     } catch (e) {
       if (!mounted) return;
-      setState(() { gpsState = GpsState.outOfRange;
-        gpsError = 'Could not acquire GPS. Move outdoors and retry.\n\nDetail: $e'; });
+      setState(() { gpsState = GpsState.outOfRange; gpsError = 'Could not get GPS. Move outdoors and retry.\n\nDetail: $e'; });
     }
   }
 
@@ -819,27 +719,24 @@ class _ClockInScreenState extends State<ClockInScreen> {
     setState(() => saving = true);
     try {
       final ts = gpsTimestamp ?? DateTime.now();
-      // 1. Upload photo to Firebase Storage
-      final photoUrl = await FirebaseService.uploadClockInPhoto(
-          photo: capturedPhoto!, userId: widget.user.email, timestamp: ts);
-      // 2. Save record to Firestore
-      final docId = await FirebaseService.saveClockIn(
+      final photoUrl = await SupabaseService.uploadPhoto(
+          photo: capturedPhoto!, userEmail: widget.user.email, timestamp: ts);
+      final id = await SupabaseService.saveClockIn(
           user: widget.user, branch: detectedBranch!,
           lat: capturedLat!, lng: capturedLng!,
           clockInTime: ts, photoUrl: photoUrl);
       final record = ClockInRecord(timestamp: ts, lat: capturedLat!,
-          lng: capturedLng!, branch: detectedBranch!, photo: capturedPhoto,
-          firestoreDocId: docId);
+          lng: capturedLng!, branch: detectedBranch!, photo: capturedPhoto, supabaseId: id);
       if (mounted) {
         setState(() { clockedIn = true; saving = false; });
-        await Future.delayed(const Duration(milliseconds: 1000));
+        await Future.delayed(const Duration(milliseconds: 900));
         widget.onClockedIn(record);
       }
     } catch (e) {
       if (mounted) {
         setState(() => saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Failed to save clock-in: $e'), backgroundColor: cRed));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Save failed: $e'), backgroundColor: cRed));
       }
     }
   }
@@ -851,15 +748,14 @@ class _ClockInScreenState extends State<ClockInScreen> {
       decoration: const BoxDecoration(gradient: LinearGradient(
           colors: [Color(0xFF065F46), cGreen], begin: Alignment.topLeft, end: Alignment.bottomRight)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        GestureDetector(onTap: widget.onBack,
-          child: const Row(children: [Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14),
-            SizedBox(width: 4), Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
+        GestureDetector(onTap: widget.onBack, child: const Row(children: [
+          Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14), SizedBox(width: 4),
+          Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
         const SizedBox(height: 8),
         Text('${_greeting()}, ${widget.user.name.split(' ').first} 👋',
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20)),
         const Text('Mode Rentals · New Zealand', style: TextStyle(color: Colors.white70, fontSize: 13))])),
-    Expanded(child: _bgGradient(child: SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+    Expanded(child: _bgGradient(child: SingleChildScrollView(padding: const EdgeInsets.all(16),
       child: Column(children: [
         raisedCard(radius: 16, child: Padding(padding: const EdgeInsets.all(20),
           child: Column(children: [
@@ -867,18 +763,15 @@ class _ClockInScreenState extends State<ClockInScreen> {
             const SizedBox(height: 4),
             Text(_dateStr(), style: const TextStyle(color: cMuted, fontSize: 13)),
             const SizedBox(height: 20),
-            // Branch selector
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Row(children: [Icon(Icons.store_rounded, color: cNavyMid, size: 15),
-                SizedBox(width: 6), Text('Select your branch', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid))]),
+              const Row(children: [Icon(Icons.store_rounded, color: cNavyMid, size: 15), SizedBox(width: 6),
+                Text('Select your branch', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid))]),
               const SizedBox(height: 8),
               Container(
                 decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: selectedBranch != null ? cGreenBorder : cBorder, width: 1.5),
-                  boxShadow: [BoxShadow(color: cNavy.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]),
+                  border: Border.all(color: selectedBranch != null ? cGreenBorder : cBorder, width: 1.5)),
                 child: DropdownButtonHideUnderline(child: DropdownButton<Branch>(
-                  value: selectedBranch, isExpanded: true,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  value: selectedBranch, isExpanded: true, padding: const EdgeInsets.symmetric(horizontal: 14),
                   hint: const Row(children: [Icon(Icons.location_on_outlined, color: cMuted, size: 16),
                     SizedBox(width: 8), Text('— Choose authorised location —', style: TextStyle(color: cMuted, fontSize: 13))]),
                   items: kBranches.map((b) => DropdownMenuItem<Branch>(value: b,
@@ -889,23 +782,18 @@ class _ClockInScreenState extends State<ClockInScreen> {
                         Text(b.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cText)),
                         Text(b.address, style: const TextStyle(fontSize: 10, color: cMuted), overflow: TextOverflow.ellipsis)]))]))).toList(),
                   onChanged: _onBranchSelected))),
-              if (selectedBranch != null) ...[
-                const SizedBox(height: 6),
-                Row(children: [const Icon(Icons.check_circle_rounded, color: cGreen, size: 13),
-                  const SizedBox(width: 5),
+              if (selectedBranch != null) ...[const SizedBox(height: 6),
+                Row(children: [const Icon(Icons.check_circle_rounded, color: cGreen, size: 13), const SizedBox(width: 5),
                   Expanded(child: Text(selectedBranch!.address, style: const TextStyle(fontSize: 11, color: cGreenText)))])]]),
             const SizedBox(height: 16),
-            // GPS Panel
             _GpsPanel(gpsState: gpsState, selectedBranch: selectedBranch, detectedBranch: detectedBranch,
                 gpsError: gpsError, capturedLat: capturedLat, capturedLng: capturedLng,
-                gpsTimestamp: gpsTimestamp, onVerify: _onVerifyTapped,
-                verifyEnabled: selectedBranch != null),
+                gpsTimestamp: gpsTimestamp, onVerify: _onVerifyTapped, verifyEnabled: selectedBranch != null),
             const SizedBox(height: 14),
-            // Photo section
             if (gpsState == GpsState.granted) ...[
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Row(children: [Icon(Icons.camera_alt_rounded, color: cNavyMid, size: 15),
-                  SizedBox(width: 6), Text('Clock-in photo', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid))]),
+                const Row(children: [Icon(Icons.camera_alt_rounded, color: cNavyMid, size: 15), SizedBox(width: 6),
+                  Text('Clock-in photo', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid))]),
                 const SizedBox(height: 4),
                 const Text('A photo is required. Camera only — gallery upload not allowed.',
                     style: TextStyle(fontSize: 11, color: cMuted, height: 1.4)),
@@ -914,19 +802,18 @@ class _ClockInScreenState extends State<ClockInScreen> {
                     ? Stack(children: [
                         ClipRRect(borderRadius: BorderRadius.circular(12),
                           child: Image.file(capturedPhoto!, width: double.infinity, height: 160, fit: BoxFit.cover)),
-                        Positioned(top: 8, right: 8,
-                          child: GestureDetector(onTap: _takePhoto,
-                            child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(color: cNavy.withOpacity(0.75), borderRadius: BorderRadius.circular(20)),
-                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.refresh_rounded, color: Colors.white, size: 13),
-                                SizedBox(width: 4), Text('Retake', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600))])))),
-                        Positioned(bottom: 8, left: 8,
-                          child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: cGreen.withOpacity(0.85), borderRadius: BorderRadius.circular(8)),
+                        Positioned(top: 8, right: 8, child: GestureDetector(onTap: _takePhoto,
+                          child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(color: cNavy.withOpacity(0.75), borderRadius: BorderRadius.circular(20)),
                             child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.check_circle_rounded, color: Colors.white, size: 12),
-                              SizedBox(width: 4), Text('Photo captured ✓', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600))])))])
+                              Icon(Icons.refresh_rounded, color: Colors.white, size: 13), SizedBox(width: 4),
+                              Text('Retake', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600))])))),
+                        Positioned(bottom: 8, left: 8, child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: cGreen.withOpacity(0.85), borderRadius: BorderRadius.circular(8)),
+                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.check_circle_rounded, color: Colors.white, size: 12), SizedBox(width: 4),
+                            Text('Photo captured ✓', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600))])))])
                     : GestureDetector(onTap: _takePhoto,
                         child: Container(width: double.infinity, height: 110,
                           decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(12), border: Border.all(color: cBorder, width: 1.5)),
@@ -941,29 +828,26 @@ class _ClockInScreenState extends State<ClockInScreen> {
                             const SizedBox(height: 2),
                             const Text('Camera only · no gallery upload', style: TextStyle(color: cMuted, fontSize: 10))])))]),
               const SizedBox(height: 14)],
-            // Clock In button
             saving
                 ? Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(color: cGreenLight, borderRadius: BorderRadius.circular(12), border: Border.all(color: cGreenBorder)),
                     child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                       SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5, color: cGreen)),
-                      SizedBox(width: 10), Text('Saving to Firebase…', style: TextStyle(color: cGreenText, fontWeight: FontWeight.w700, fontSize: 14))]))
+                      SizedBox(width: 10), Text('Uploading photo & saving…', style: TextStyle(color: cGreenText, fontWeight: FontWeight.w700, fontSize: 13))]))
                 : clockedIn
                     ? Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
                         decoration: BoxDecoration(color: cGreenLight, borderRadius: BorderRadius.circular(12), border: Border.all(color: cGreenBorder)),
                         child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Icon(Icons.check_circle_rounded, color: cGreen, size: 20),
-                          SizedBox(width: 8), Text('Clocked In Successfully!', style: TextStyle(color: cGreenText, fontWeight: FontWeight.w800, fontSize: 15))]))
+                          Icon(Icons.check_circle_rounded, color: cGreen, size: 20), SizedBox(width: 8),
+                          Text('Clocked In & Saved ✓', style: TextStyle(color: cGreenText, fontWeight: FontWeight.w800, fontSize: 15))]))
                     : _ClockInButton(gpsState: gpsState, photoTaken: capturedPhoto != null,
-                        clockedIn: clockedIn, branchSelected: selectedBranch != null,
-                        onTap: _confirmClockIn)]))),
+                        clockedIn: clockedIn, branchSelected: selectedBranch != null, onTap: _confirmClockIn)]))),
         const SizedBox(height: 16),
         raisedCard(radius: 16, child: Padding(padding: const EdgeInsets.all(18),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('This fortnight', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: cText)),
             const SizedBox(height: 12),
-            _SummaryRow(label: 'Last week', value: '40.0 hrs', bold: false),
-            const SizedBox(height: 8),
+            _SummaryRow(label: 'Last week', value: '40.0 hrs', bold: false), const SizedBox(height: 8),
             _SummaryRow(label: 'This week so far', value: '16.5 hrs', bold: false),
             const Divider(height: 20, color: cBorder),
             _SummaryRow(label: 'Total', value: '56.5 hrs', bold: true, valueColor: cBlue)]))),
@@ -975,99 +859,93 @@ class _GpsPanel extends StatelessWidget {
   final GpsState gpsState; final Branch? selectedBranch, detectedBranch;
   final String gpsError; final double? capturedLat, capturedLng;
   final DateTime? gpsTimestamp; final VoidCallback onVerify; final bool verifyEnabled;
-  const _GpsPanel({required this.gpsState, required this.selectedBranch,
-      required this.detectedBranch, required this.gpsError,
-      required this.capturedLat, required this.capturedLng,
+  const _GpsPanel({required this.gpsState, required this.selectedBranch, required this.detectedBranch,
+      required this.gpsError, required this.capturedLat, required this.capturedLng,
       required this.gpsTimestamp, required this.onVerify, required this.verifyEnabled});
 
   String _fmtTs(DateTime? ts) {
     if (ts == null) return '';
     final h = ts.hour % 12 == 0 ? 12 : ts.hour % 12;
-    final m = ts.minute.toString().padLeft(2, '0');
-    final sc = ts.second.toString().padLeft(2, '0');
-    final p = ts.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m:$sc $p';
+    final m = ts.minute.toString().padLeft(2,'0');
+    final s = ts.second.toString().padLeft(2,'0');
+    return '$h:$m:$s ${ts.hour < 12 ? 'AM' : 'PM'}';
   }
 
   @override
   Widget build(BuildContext context) {
-    switch (gpsState) {
-      case GpsState.idle:
-        return GestureDetector(onTap: verifyEnabled ? onVerify : null,
-          child: Container(width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-            decoration: BoxDecoration(color: verifyEnabled ? cNavyMid : cSlate,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: verifyEnabled ? cNavyLight : cBorder)),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.my_location_rounded, color: verifyEnabled ? Colors.white : cMuted, size: 18),
-              const SizedBox(width: 8),
-              Text(verifyEnabled ? 'Tap to verify location' : 'Select a branch first',
-                  style: TextStyle(color: verifyEnabled ? Colors.white : cMuted,
-                      fontSize: 13, fontWeight: FontWeight.w600))])));
-      case GpsState.loading:
-        return Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(10), border: Border.all(color: cBorder)),
-          child: const Column(children: [
-            SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: cGreen)),
-            SizedBox(height: 8), Text('Acquiring GPS signal…', style: TextStyle(color: cMuted, fontSize: 12))]));
-      case GpsState.granted:
-        return Container(width: double.infinity, padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: cGreenLight, borderRadius: BorderRadius.circular(10), border: Border.all(color: cGreenBorder)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [const Icon(Icons.location_on_rounded, color: cGreen, size: 16), const SizedBox(width: 6),
-              Expanded(child: Text('${detectedBranch!.name} · GPS verified ✓',
-                  style: const TextStyle(color: cGreenText, fontWeight: FontWeight.w700, fontSize: 13)))]),
-            const SizedBox(height: 6),
-            Text(detectedBranch!.address, style: const TextStyle(color: cGreenText, fontSize: 11, height: 1.3)),
-            const SizedBox(height: 8),
-            Container(padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(6)),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [const Icon(Icons.gps_fixed, color: cGreen, size: 12), const SizedBox(width: 4),
-                  Text('${capturedLat!.toStringAsFixed(5)}, ${capturedLng!.toStringAsFixed(5)}',
-                      style: const TextStyle(fontSize: 10, color: cGreenText, fontFamily: 'monospace'))]),
-                const SizedBox(height: 3),
-                Row(children: [const Icon(Icons.access_time_rounded, color: cGreen, size: 12), const SizedBox(width: 4),
-                  Text('Captured at ${_fmtTs(gpsTimestamp)}', style: const TextStyle(fontSize: 10, color: cGreenText))])]))]));
-      case GpsState.outOfRange:
-        return Column(children: [
-          Container(width: double.infinity, padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: cOrange.withOpacity(0.5))),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Row(children: [Icon(Icons.location_off_rounded, color: cOrange, size: 18), SizedBox(width: 8),
-                Text('Location Out of Range', style: TextStyle(color: cOrangeDark, fontWeight: FontWeight.w800, fontSize: 13))]),
-              const SizedBox(height: 8),
-              Text(gpsError, style: const TextStyle(color: cOrangeDark, fontSize: 11.5, height: 1.55)),
-              const SizedBox(height: 10),
-              GestureDetector(onTap: onVerify,
-                child: Container(padding: const EdgeInsets.symmetric(vertical: 9),
-                  decoration: BoxDecoration(gradient: const LinearGradient(colors: [cOrange, Color(0xFFEA580C)]),
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [BoxShadow(color: cOrange.withOpacity(0.35), blurRadius: 6, offset: const Offset(0, 2))]),
-                  child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Icon(Icons.refresh_rounded, color: Colors.white, size: 16), SizedBox(width: 6),
-                    Text('Retry GPS Check', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))])))])])
-;
-      case GpsState.denied:
-        return Container(padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: const Color(0xFFFDECEA), borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cRed.withOpacity(0.3))),
-          child: Column(children: [
-            const Row(children: [Icon(Icons.location_disabled_rounded, color: cRed, size: 16), SizedBox(width: 8),
-              Text('Location Permission Denied', style: TextStyle(color: cRed, fontWeight: FontWeight.w700, fontSize: 12))]),
-            const SizedBox(height: 6),
-            Text(gpsError.isNotEmpty ? gpsError : 'Please enable location access in Settings.',
-                style: const TextStyle(color: cRed, fontSize: 11, height: 1.4)),
-            const SizedBox(height: 8),
-            GestureDetector(onTap: onVerify,
-              child: Container(padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(gradient: const LinearGradient(colors: [cNavyMid, cNavy]), borderRadius: BorderRadius.circular(8)),
-                child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(Icons.settings_rounded, color: Colors.white, size: 14), SizedBox(width: 6),
-                  Text('Open Settings', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))])))]));
+    if (gpsState == GpsState.idle) {
+      return GestureDetector(onTap: verifyEnabled ? onVerify : null,
+        child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+          decoration: BoxDecoration(color: verifyEnabled ? cNavyMid : cSlate,
+              borderRadius: BorderRadius.circular(10), border: Border.all(color: verifyEnabled ? cNavyLight : cBorder)),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.my_location_rounded, color: verifyEnabled ? Colors.white : cMuted, size: 18), const SizedBox(width: 8),
+            Text(verifyEnabled ? 'Tap to verify location' : 'Select a branch first',
+                style: TextStyle(color: verifyEnabled ? Colors.white : cMuted, fontSize: 13, fontWeight: FontWeight.w600))])));
     }
+    if (gpsState == GpsState.loading) {
+      return Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(10), border: Border.all(color: cBorder)),
+        child: const Column(children: [
+          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: cGreen)),
+          SizedBox(height: 8), Text('Acquiring GPS signal…', style: TextStyle(color: cMuted, fontSize: 12))]));
+    }
+    if (gpsState == GpsState.granted) {
+      return Container(width: double.infinity, padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: cGreenLight, borderRadius: BorderRadius.circular(10), border: Border.all(color: cGreenBorder)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [const Icon(Icons.location_on_rounded, color: cGreen, size: 16), const SizedBox(width: 6),
+            Expanded(child: Text('${detectedBranch!.name} · GPS verified ✓',
+                style: const TextStyle(color: cGreenText, fontWeight: FontWeight.w700, fontSize: 13)))]),
+          const SizedBox(height: 6),
+          Text(detectedBranch!.address, style: const TextStyle(color: cGreenText, fontSize: 11, height: 1.3)),
+          const SizedBox(height: 8),
+          Container(padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(6)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [const Icon(Icons.gps_fixed, color: cGreen, size: 12), const SizedBox(width: 4),
+                Text('${capturedLat!.toStringAsFixed(5)}, ${capturedLng!.toStringAsFixed(5)}',
+                    style: const TextStyle(fontSize: 10, color: cGreenText, fontFamily: 'monospace'))]),
+              const SizedBox(height: 3),
+              Row(children: [const Icon(Icons.access_time_rounded, color: cGreen, size: 12), const SizedBox(width: 4),
+                Text('Captured at ${_fmtTs(gpsTimestamp)}', style: const TextStyle(fontSize: 10, color: cGreenText))])]))]));
+    }
+    if (gpsState == GpsState.outOfRange) {
+      return Container(width: double.infinity, padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: cOrange.withOpacity(0.5))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Row(children: [Icon(Icons.location_off_rounded, color: cOrange, size: 18), SizedBox(width: 8),
+            Text('Location Out of Range', style: TextStyle(color: cOrangeDark, fontWeight: FontWeight.w800, fontSize: 13))]),
+          const SizedBox(height: 8),
+          Text(gpsError, style: const TextStyle(color: cOrangeDark, fontSize: 11.5, height: 1.55)),
+          const SizedBox(height: 10),
+          GestureDetector(onTap: onVerify,
+            child: Container(padding: const EdgeInsets.symmetric(vertical: 9),
+              decoration: BoxDecoration(gradient: const LinearGradient(colors: [cOrange, Color(0xFFEA580C)]),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [BoxShadow(color: cOrange.withOpacity(0.35), blurRadius: 6, offset: const Offset(0, 2))]),
+              child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.refresh_rounded, color: Colors.white, size: 16), SizedBox(width: 6),
+                Text('Retry GPS Check', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))])))]));
+    }
+    // GpsState.denied
+    return Container(padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFFFDECEA), borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cRed.withOpacity(0.3))),
+      child: Column(children: [
+        const Row(children: [Icon(Icons.location_disabled_rounded, color: cRed, size: 16), SizedBox(width: 8),
+          Text('Location Permission Denied', style: TextStyle(color: cRed, fontWeight: FontWeight.w700, fontSize: 12))]),
+        const SizedBox(height: 6),
+        Text(gpsError.isNotEmpty ? gpsError : 'Please enable location access in Settings.',
+            style: const TextStyle(color: cRed, fontSize: 11, height: 1.4)),
+        const SizedBox(height: 8),
+        GestureDetector(onTap: onVerify,
+          child: Container(padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(gradient: const LinearGradient(colors: [cNavyMid, cNavy]), borderRadius: BorderRadius.circular(8)),
+            child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.settings_rounded, color: Colors.white, size: 14), SizedBox(width: 6),
+              Text('Open Settings', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))])))]));
   }
 }
 
@@ -1080,14 +958,13 @@ class _ClockInButton extends StatelessWidget {
   bool get _enabled => gpsState == GpsState.granted && photoTaken && !clockedIn;
   @override
   Widget build(BuildContext context) {
-    final String label = !branchSelected ? 'Select a Branch First'
+    final label = !branchSelected ? 'Select a Branch First'
         : gpsState != GpsState.granted ? 'Verify Location First'
         : !photoTaken ? 'Take Photo to Enable Clock-In' : 'Clock In';
     return Opacity(opacity: _enabled ? 1.0 : 0.45,
       child: GestureDetector(onTap: _enabled ? onTap : null,
         child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 15),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF065F46), cGreen]),
+          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF065F46), cGreen]),
             borderRadius: BorderRadius.circular(12),
             boxShadow: _enabled ? [BoxShadow(color: cGreen.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 4)),
               const BoxShadow(color: Color(0xFF064E3B), blurRadius: 0, offset: Offset(0, 3))] : []),
@@ -1097,107 +974,98 @@ class _ClockInButton extends StatelessWidget {
 }
 
 // ─── SHIFT HISTORY SCREEN ──────────────────────────────────
-class ShiftHistoryScreen extends StatelessWidget {
+class ShiftHistoryScreen extends StatefulWidget {
   final AppUser user; final VoidCallback onBack, onLogout;
-  const ShiftHistoryScreen({super.key, required this.user,
-      required this.onBack, required this.onLogout});
+  const ShiftHistoryScreen({super.key, required this.user, required this.onBack, required this.onLogout});
+  @override State<ShiftHistoryScreen> createState() => _ShiftHistoryScreenState();
+}
+class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
+  List<Map<String,dynamic>> records = [];
+  bool loading = true; String err = '';
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final r = await SupabaseService.getUserRecords(widget.user.email);
+      if (mounted) setState(() { records = r; loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { err = e.toString(); loading = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Column(children: [
-    AppHeader(onLogout: onLogout),
+    AppHeader(onLogout: widget.onLogout),
     Container(width: double.infinity, padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-      decoration: const BoxDecoration(gradient: LinearGradient(
-          colors: [Color(0xFF4A1D96), cPurple], begin: Alignment.topLeft, end: Alignment.bottomRight)),
+      decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4A1D96), cPurple],
+          begin: Alignment.topLeft, end: Alignment.bottomRight)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        GestureDetector(onTap: onBack,
-          child: const Row(children: [Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14),
-            SizedBox(width: 4), Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
+        GestureDetector(onTap: widget.onBack, child: const Row(children: [
+          Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14), SizedBox(width: 4),
+          Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
         const SizedBox(height: 8),
         const Text('My Shift History', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
         const Text('All your clock-in records', style: TextStyle(color: Colors.white70, fontSize: 13))])),
-    Expanded(child: _bgGradient(child: StreamBuilder<QuerySnapshot>(
-      stream: FirebaseService.getUserRecords(user.email),
-      builder: (ctx, snap) {
-        if (snap.connectionState == ConnectionState.waiting)
-          return const Center(child: CircularProgressIndicator(color: cPurple));
-        if (snap.hasError)
-          return Center(child: Text('Error: ${snap.error}', style: const TextStyle(color: cRed)));
-        final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty)
-          return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.history_rounded, color: cMuted, size: 48),
-            SizedBox(height: 12),
-            Text('No shift records yet.', style: TextStyle(color: cMuted, fontSize: 15, fontWeight: FontWeight.w600)),
-            SizedBox(height: 4),
-            Text('Your clock-in records will appear here.', style: TextStyle(color: cMuted, fontSize: 12))]));
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
-          itemBuilder: (ctx, i) {
-            final d = docs[i].data() as Map<String, dynamic>;
-            final clockIn = (d['clockInTime'] as Timestamp?)?.toDate();
-            final clockOut = (d['clockOutTime'] as Timestamp?)?.toDate();
-            final status = d['shiftStatus'] ?? 'active';
-            final photoUrl = d['photoUrl'] as String?;
-            final isActive = status == 'active';
-            return Container(margin: const EdgeInsets.only(bottom: 12),
-              child: raisedCard(radius: 14, child: Padding(padding: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isActive ? cGreenLight : cSlate,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: isActive ? cGreenBorder : cBorder)),
-                      child: Text(isActive ? '● Active' : '✓ Completed',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
-                              color: isActive ? cGreenText : cMuted))),
-                    const Spacer(),
-                    Text(d['branchName'] ?? '', style: const TextStyle(fontSize: 11, color: cMuted, fontWeight: FontWeight.w600))]),
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    const Icon(Icons.login_rounded, color: cGreen, size: 14),
-                    const SizedBox(width: 6),
-                    Text('In:  ${clockIn != null ? _fmtDateTime(clockIn) : '--'}',
-                        style: const TextStyle(fontSize: 12, color: cText))]),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    const Icon(Icons.logout_rounded, color: cRed, size: 14),
-                    const SizedBox(width: 6),
-                    Text('Out: ${clockOut != null ? _fmtDateTime(clockOut) : 'Not clocked out yet'}',
-                        style: TextStyle(fontSize: 12, color: clockOut != null ? cText : cMuted))]),
-                  if (d['shiftHours'] != null) ...[
-                    const SizedBox(height: 4),
-                    Row(children: [const Icon(Icons.access_time_rounded, color: cBlue, size: 14),
-                      const SizedBox(width: 6),
-                      Text('Total: ${(d['shiftHours'] as num).toStringAsFixed(1)} hrs',
-                          style: const TextStyle(fontSize: 12, color: cBlue, fontWeight: FontWeight.w600))])],
-                  if (d['lat'] != null) ...[
-                    const SizedBox(height: 4),
-                    Row(children: [const Icon(Icons.gps_fixed, color: cMuted, size: 12),
-                      const SizedBox(width: 6),
-                      Text('${(d['lat'] as num).toStringAsFixed(5)}, ${(d['lng'] as num).toStringAsFixed(5)}',
-                          style: const TextStyle(fontSize: 10, color: cMuted, fontFamily: 'monospace'))])],
-                  if (photoUrl != null) ...[
-                    const SizedBox(height: 10),
-                    ClipRRect(borderRadius: BorderRadius.circular(8),
-                      child: Image.network(photoUrl, height: 100, width: double.infinity,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (_, child, prog) => prog == null ? child
-                              : Container(height: 100, color: cSlate,
-                                  child: const Center(child: CircularProgressIndicator(color: cPurple, strokeWidth: 2))),
-                          errorBuilder: (_, __, ___) => Container(height: 50, color: cSlate,
-                              child: const Center(child: Icon(Icons.broken_image_rounded, color: cMuted)))))],
-                  if (d['shiftNotes'] != null && (d['shiftNotes'] as String).isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Container(padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(6)),
-                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Icon(Icons.notes_rounded, color: cMuted, size: 13),
-                        const SizedBox(width: 6),
-                        Expanded(child: Text(d['shiftNotes'], style: const TextStyle(fontSize: 11, color: cNavyMid)))]))]))])));
-          });
-      })));
+    Expanded(child: _bgGradient(child:
+      loading ? const Center(child: CircularProgressIndicator(color: cPurple))
+      : err.isNotEmpty ? Center(child: Text('Error: $err', style: const TextStyle(color: cRed)))
+      : records.isEmpty
+          ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.history_rounded, color: cMuted, size: 48), SizedBox(height: 12),
+              Text('No shift records yet.', style: TextStyle(color: cMuted, fontSize: 15, fontWeight: FontWeight.w600)),
+              SizedBox(height: 4),
+              Text('Your clock-in records will appear here.', style: TextStyle(color: cMuted, fontSize: 12))]))
+          : RefreshIndicator(onRefresh: _load, color: cPurple,
+              child: ListView.builder(padding: const EdgeInsets.all(16), itemCount: records.length,
+                itemBuilder: (_, i) {
+                  final d = records[i];
+                  final isActive = d['shift_status'] == 'active';
+                  final photoUrl = d['photo_url'] as String?;
+                  return Container(margin: const EdgeInsets.only(bottom: 12),
+                    child: raisedCard(radius: 14, child: Padding(padding: const EdgeInsets.all(16),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [
+                          Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(color: isActive ? cGreenLight : cSlate,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: isActive ? cGreenBorder : cBorder)),
+                            child: Text(isActive ? '● Active' : '✓ Completed',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                                    color: isActive ? cGreenText : cMuted))),
+                          const Spacer(),
+                          Text(d['branch_name'] ?? '', style: const TextStyle(fontSize: 11, color: cMuted, fontWeight: FontWeight.w600))]),
+                        const SizedBox(height: 10),
+                        Row(children: [const Icon(Icons.login_rounded, color: cGreen, size: 14), const SizedBox(width: 6),
+                          Text('In:  ${_fmtDT(d['clock_in_time'])}', style: const TextStyle(fontSize: 12, color: cText))]),
+                        const SizedBox(height: 4),
+                        Row(children: [const Icon(Icons.logout_rounded, color: cRed, size: 14), const SizedBox(width: 6),
+                          Text('Out: ${d['clock_out_time'] != null ? _fmtDT(d['clock_out_time']) : 'Not clocked out yet'}',
+                              style: TextStyle(fontSize: 12, color: d['clock_out_time'] != null ? cText : cMuted))]),
+                        if (d['shift_hours'] != null) ...[const SizedBox(height: 4),
+                          Row(children: [const Icon(Icons.access_time_rounded, color: cBlue, size: 14), const SizedBox(width: 6),
+                            Text('Total: ${(d['shift_hours'] as num).toStringAsFixed(1)} hrs',
+                                style: const TextStyle(fontSize: 12, color: cBlue, fontWeight: FontWeight.w600))])],
+                        if (d['lat'] != null) ...[const SizedBox(height: 4),
+                          Row(children: [const Icon(Icons.gps_fixed, color: cMuted, size: 12), const SizedBox(width: 6),
+                            Text('${(d['lat'] as num).toStringAsFixed(5)}, ${(d['lng'] as num).toStringAsFixed(5)}',
+                                style: const TextStyle(fontSize: 10, color: cMuted, fontFamily: 'monospace'))])],
+                        if (photoUrl != null) ...[const SizedBox(height: 10),
+                          ClipRRect(borderRadius: BorderRadius.circular(8),
+                            child: Image.network(photoUrl, height: 100, width: double.infinity, fit: BoxFit.cover,
+                              loadingBuilder: (_, child, prog) => prog == null ? child
+                                  : Container(height: 100, color: cSlate, child: const Center(child: CircularProgressIndicator(color: cPurple, strokeWidth: 2))),
+                              errorBuilder: (_, __, ___) => Container(height: 50, color: cSlate,
+                                  child: const Center(child: Icon(Icons.broken_image_rounded, color: cMuted)))))],
+                        if (d['shift_notes'] != null && (d['shift_notes'] as String).isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(6)),
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              const Icon(Icons.notes_rounded, color: cMuted, size: 13), const SizedBox(width: 6),
+                              Expanded(child: Text(d['shift_notes'], style: const TextStyle(fontSize: 11, color: cNavyMid)))]))])]))]);
+                })))));
 }
 
 // ─── CLOCK OUT SCREEN ──────────────────────────────────────
@@ -1210,30 +1078,27 @@ class ClockOutScreen extends StatefulWidget {
 }
 class _ClockOutScreenState extends State<ClockOutScreen> {
   final noteCtrl = TextEditingController();
-  bool confirmed = false; bool saving = false;
+  bool confirmed = false, saving = false;
 
   String _fmt(DateTime? t) {
     if (t == null) return '--:-- --';
     final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-    final m = t.minute.toString().padLeft(2, '0');
-    final p = t.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m $p';
+    final m = t.minute.toString().padLeft(2,'0');
+    return '$h:$m ${t.hour < 12 ? 'AM' : 'PM'}';
   }
 
   double _shiftHours() {
     if (widget.clockInRecord == null) return 0;
-    final inMin = widget.clockInRecord!.timestamp.hour * 60 + widget.clockInRecord!.timestamp.minute;
-    final now = DateTime.now();
-    final outMin = now.hour * 60 + now.minute;
-    return ((outMin - inMin - 30).clamp(0, 999) / 60);
+    final diff = DateTime.now().difference(widget.clockInRecord!.timestamp).inMinutes - 30;
+    return (diff.clamp(0, 9999) / 60);
   }
 
   Future<void> _confirmOut() async {
     setState(() => saving = true);
     try {
-      if (widget.clockInRecord?.firestoreDocId != null) {
-        await FirebaseService.saveClockOut(
-            recordId: widget.clockInRecord!.firestoreDocId!,
+      if (widget.clockInRecord?.supabaseId != null) {
+        await SupabaseService.saveClockOut(
+            recordId: widget.clockInRecord!.supabaseId!,
             clockOutTime: DateTime.now(),
             notes: noteCtrl.text.trim(),
             shiftHours: _shiftHours());
@@ -1242,8 +1107,8 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Failed to save clock-out: $e'), backgroundColor: cRed));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save clock-out: $e'), backgroundColor: cRed));
       }
     }
   }
@@ -1255,9 +1120,9 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
       decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF7F1D1D), cRedDark],
           begin: Alignment.topLeft, end: Alignment.bottomRight)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        GestureDetector(onTap: widget.onBack,
-          child: const Row(children: [Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14),
-            SizedBox(width: 4), Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
+        GestureDetector(onTap: widget.onBack, child: const Row(children: [
+          Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14), SizedBox(width: 4),
+          Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
         const SizedBox(height: 8),
         const Text('Clock Out', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
         const Text('Confirm your shift end', style: TextStyle(color: Colors.white70, fontSize: 13))])),
@@ -1268,14 +1133,12 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
           Container(padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(color: cGreenLight, border: Border.all(color: cGreenBorder), borderRadius: BorderRadius.circular(16)),
             child: Column(children: [
-              const Icon(Icons.check_circle_rounded, color: cGreen, size: 52),
-              const SizedBox(height: 12),
+              const Icon(Icons.check_circle_rounded, color: cGreen, size: 52), const SizedBox(height: 12),
               const Text('Clocked Out!', style: TextStyle(fontWeight: FontWeight.w800, color: cGreenText, fontSize: 18)),
               const SizedBox(height: 6),
-              Text('Shift total: ${_shiftHours().toStringAsFixed(1)} hrs',
-                  style: const TextStyle(color: cGreenText, fontSize: 14)),
+              Text('Shift total: ${_shiftHours().toStringAsFixed(1)} hrs', style: const TextStyle(color: cGreenText, fontSize: 14)),
               const SizedBox(height: 4),
-              const Text('Saved to Firebase ✓', style: TextStyle(color: cGreenText, fontSize: 12)),
+              const Text('Saved to Supabase ✓', style: TextStyle(color: cGreenText, fontSize: 12)),
               const SizedBox(height: 16),
               PrimaryButton(label: 'Back to Home', onTap: widget.onClockedOut,
                   colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)]))]
@@ -1298,8 +1161,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                 Text(widget.clockInRecord?.branch.name ?? 'Unknown',
                     style: const TextStyle(color: cGreenText, fontWeight: FontWeight.w700, fontSize: 13)),
                 const Spacer(), const Text('GPS verified ✓', style: TextStyle(color: cGreen, fontSize: 11))]),
-              if (widget.clockInRecord != null) ...[
-                const SizedBox(height: 6),
+              if (widget.clockInRecord != null) ...[const SizedBox(height: 6),
                 Text('${widget.clockInRecord!.lat.toStringAsFixed(5)}, ${widget.clockInRecord!.lng.toStringAsFixed(5)}',
                     style: const TextStyle(fontSize: 10, color: cMuted, fontFamily: 'monospace'))]]))),
           const SizedBox(height: 12),
@@ -1307,8 +1169,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('Add a note (optional)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: cText)),
               const SizedBox(height: 10),
-              TextField(controller: noteCtrl, maxLines: 3,
-                style: const TextStyle(fontSize: 13, color: cText),
+              TextField(controller: noteCtrl, maxLines: 3, style: const TextStyle(fontSize: 13, color: cText),
                 decoration: InputDecoration(hintText: 'e.g. Completed vehicle drop-off at 3pm',
                   hintStyle: const TextStyle(color: cMuted, fontSize: 12),
                   filled: true, fillColor: cSlate, contentPadding: const EdgeInsets.all(12),
@@ -1321,11 +1182,10 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                   decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(12), border: Border.all(color: cBorder)),
                   child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5, color: cGreen)),
-                    SizedBox(width: 10), Text('Saving…', style: TextStyle(color: cMuted, fontWeight: FontWeight.w600, fontSize: 14))]))
+                    SizedBox(width: 10), Text('Saving to Supabase…', style: TextStyle(color: cMuted, fontWeight: FontWeight.w600, fontSize: 14))]))
               : GestureDetector(onTap: _confirmOut,
                   child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFF7F1D1D), cRedDark]),
+                    decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF7F1D1D), cRedDark]),
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [BoxShadow(color: cRed.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 4)),
                         const BoxShadow(color: Color(0xFF450A0A), blurRadius: 0, offset: Offset(0, 3))]),
@@ -1347,9 +1207,9 @@ class TimesheetScreen extends StatelessWidget {
         decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF1E3A8A), cBlue],
             begin: Alignment.topLeft, end: Alignment.bottomRight)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          GestureDetector(onTap: onBack,
-            child: const Row(children: [Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14),
-              SizedBox(width: 4), Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
+          GestureDetector(onTap: onBack, child: const Row(children: [
+            Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 14), SizedBox(width: 4),
+            Text('Back', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600))])),
           const SizedBox(height: 8),
           const Text('My Timesheet', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
           Text('1–14 $month ${now.year}', style: const TextStyle(color: Colors.white70, fontSize: 13))])),
