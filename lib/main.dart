@@ -851,7 +851,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
             _SummaryRow(label: 'This week so far', value: '16.5 hrs', bold: false),
             const Divider(height: 20, color: cBorder),
             _SummaryRow(label: 'Total', value: '56.5 hrs', bold: true, valueColor: cBlue)]))),
-        const SizedBox(height: 20)]))));
+        const SizedBox(height: 20)]))))]);
 }
 
 // ─── GPS Panel ─────────────────────────────────────────────
