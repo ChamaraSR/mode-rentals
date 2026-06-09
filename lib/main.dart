@@ -1272,7 +1272,7 @@ class ManagerHome extends StatelessWidget {
           const Text('Staff Members', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid)),
           const SizedBox(height: 8),
           if (staff.isEmpty) const Text('No staff members yet.', style: TextStyle(color: cMuted))
-          else ...staff.map((s) => UserRow(u: s))])))]);
+          else ...staff.map((s) => UserRow(u: s))]))))]);
   }
 }
 
@@ -1365,6 +1365,6 @@ class _AdminHomeState extends State<AdminHome> {
           const SizedBox(height: 20),
           Text('All Users (${widget.users.length})', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: cNavyMid)),
           const SizedBox(height: 8),
-          ...widget.users.map((u) => UserRow(u: u, showRole: true))])))]);
+          ...widget.users.map((u) => UserRow(u: u, showRole: true))]))))]);
   }
 }
