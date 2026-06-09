@@ -192,7 +192,7 @@ class ClockInRecord {
   final double lat, lng;
   final Branch branch;
   final File? photo;
-  int? supabaseId;
+  String? supabaseId;
   ClockInRecord({
     required this.timestamp,
     required this.lat,
