@@ -1064,8 +1064,8 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                             decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(6)),
                             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                               const Icon(Icons.notes_rounded, color: cMuted, size: 13), const SizedBox(width: 6),
-                              Expanded(child: Text(d['shift_notes'], style: const TextStyle(fontSize: 11, color: cNavyMid)))]))])]))]);
-                })))));
+                              Expanded(child: Text(d['shift_notes'], style: const TextStyle(fontSize: 11, color: cNavyMid)))]))]]))));
+                }))))]);
 }
 
 // ─── CLOCK OUT SCREEN ──────────────────────────────────────
