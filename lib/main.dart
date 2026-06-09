@@ -1246,7 +1246,7 @@ class TimesheetScreen extends StatelessWidget {
                   const BoxShadow(color: Color(0xFF1E3A5F), blurRadius: 0, offset: Offset(0, 3))]),
               child: const Text('Submit to Manager', textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)))),
-          const SizedBox(height: 20)])))]);
+          const SizedBox(height: 20)]))))]);
   }
 }
 
