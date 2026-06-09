@@ -74,7 +74,7 @@ class SupabaseService {
     return _supabase.storage.from('clockin-photos').getPublicUrl(path);
   }
 
-  static Future<int> saveClockIn({
+  static Future<String> saveClockIn({
     required AppUser user,
     required Branch branch,
     required double lat,
@@ -98,11 +98,11 @@ class SupabaseService {
         })
         .select('id')
         .single();
-    return res['id'] as int;
+    return res['id'].toString();
   }
 
   static Future<void> saveClockOut({
-    required int recordId,
+    required String recordId,
     required DateTime clockOutTime,
     required String notes,
     required double shiftHours,
