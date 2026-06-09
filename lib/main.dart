@@ -1190,7 +1190,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                       boxShadow: [BoxShadow(color: cRed.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 4)),
                         const BoxShadow(color: Color(0xFF450A0A), blurRadius: 0, offset: Offset(0, 3))]),
                     child: const Text('Confirm Clock Out', textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16))))]])))));
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16))))]]))))]);
 }
 
 // ─── TIMESHEET SCREEN ──────────────────────────────────────
