@@ -513,7 +513,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
                 style: const TextStyle(fontSize: 12, color: cGreenText), textAlign: TextAlign.center),
             const SizedBox(height: 16),
             PrimaryButton(label: 'Back to Sign in', onTap: widget.onBack,
-                colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)])])))));
+                colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)]))]))))]);
 }
 
 // ─── STAFF HOME ────────────────────────────────────────────
