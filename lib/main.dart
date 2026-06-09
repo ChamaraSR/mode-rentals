@@ -458,7 +458,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: const Text('Forgot password?', style: TextStyle(color: cPurple, fontWeight: FontWeight.w700,
               fontSize: 13, decoration: TextDecoration.underline))),
         const SizedBox(height: 32),
-        const Text('Secured · Privacy Act 2020 compliant', style: TextStyle(color: cMuted, fontSize: 11))]))));
+        const Text('Secured · Privacy Act 2020 compliant', style: TextStyle(color: cMuted, fontSize: 11))])))]);
 }
 
 // ─── FORGOT PASSWORD ───────────────────────────────────────
