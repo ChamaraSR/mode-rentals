@@ -880,7 +880,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
         saving?Container(width:double.infinity,padding: const EdgeInsets.symmetric(vertical:14),decoration:BoxDecoration(color:cGreenLight,borderRadius:BorderRadius.circular(12),border:Border.all(color:cGreenBorder)),child: const Row(mainAxisAlignment:MainAxisAlignment.center,children:[SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2.5,color:cGreen)),SizedBox(width:10),Text('Uploading photo & saving…',style:TextStyle(color:cGreenText,fontWeight:FontWeight.w700,fontSize:13))]))
         :clockedIn?Container(width:double.infinity,padding: const EdgeInsets.symmetric(vertical:14),decoration:BoxDecoration(color:cGreenLight,borderRadius:BorderRadius.circular(12),border:Border.all(color:cGreenBorder)),child: const Row(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.check_circle_rounded,color:cGreen,size:20),SizedBox(width:8),Text('Clocked In & Saved ✓',style:TextStyle(color:cGreenText,fontWeight:FontWeight.w800,fontSize:15))]))
         :_ClockInButton(gpsState:gpsState,photoTaken:capturedPhoto!=null,clockedIn:clockedIn,branchSelected:selectedBranch!=null,onTap:_confirmClockIn)]))),
-      const SizedBox(height:20)]))));
+      const SizedBox(height:20)]))))]);
 }
 
 class _GpsPanel extends StatelessWidget {
