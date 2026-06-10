@@ -709,7 +709,7 @@ class _FortnightlyTimesheetScreenState extends State<FortnightlyTimesheetScreen>
                     Row(children:[
                       if(isHigh) const Padding(padding:EdgeInsets.only(right:6),child:Icon(Icons.warning_amber_rounded,color:cOrange,size:16)),
                       Text('${total.toStringAsFixed(1)} hrs',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:isHigh?cOrange:cBlue))])]),
-                  if(isHigh)...[const SizedBox(height:8), Container(padding: const EdgeInsets.all(8), decoration:BoxDecoration(color:cAmberLight,borderRadius:BorderRadius.circular(6)),child: const Row(children:[Icon(Icons.warning_amber_rounded,color:cAmber,size:14),SizedBox(width:6),Expanded(child:Text('Hours significantly exceed standard 80 hrs/fortnight. Please verify with your manager.',style:TextStyle(fontSize:11,color:cAmberText)))]))]))])),
+                  if(isHigh)...[const SizedBox(height:8), Container(padding: const EdgeInsets.all(8), decoration:BoxDecoration(color:cAmberLight,borderRadius:BorderRadius.circular(6)),child: const Row(children:[Icon(Icons.warning_amber_rounded,color:cAmber,size:14),SizedBox(width:6),Expanded(child:Text('Hours significantly exceed standard 80 hrs/fortnight. Please verify with your manager.',style:TextStyle(fontSize:11,color:cAmberText)))]))]])))])),
                 const SizedBox(height:16),
                 // Submit button
                 if (!_isApproved)
