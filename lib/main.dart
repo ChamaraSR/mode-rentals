@@ -462,7 +462,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
         Container(width:52,height:52,decoration:BoxDecoration(color:cGreen.withOpacity(0.15),borderRadius:BorderRadius.circular(26)),child: const Icon(Icons.mark_email_read_rounded,color:cGreen,size:28)),
         const SizedBox(height:12), const Text('Reset link sent!',style:TextStyle(fontWeight:FontWeight.w800,color:cGreenText,fontSize:16)),
         const SizedBox(height:6),Text('Check ${ctrl.text.trim()} for your password reset link.',style: const TextStyle(fontSize:12,color:cGreenText),textAlign:TextAlign.center),
-        const SizedBox(height:16),PrimaryButton(label:'Back to Sign in',onTap:widget.onBack,colors:[cGreen,const Color(0xFF15803D)],shadowColor:cGreenDark)]))])))]);
+        const SizedBox(height:16),PrimaryButton(label:'Back to Sign in',onTap:widget.onBack,colors:[cGreen,const Color(0xFF15803D)],shadowColor:cGreenDark)]))]))))]);
 }
 
 // ─── STAFF HOME ────────────────────────────────────────────
