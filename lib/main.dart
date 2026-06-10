@@ -4189,7 +4189,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                                 borderRadius: BorderRadius.circular(8),
                                 borderSide: const BorderSide(color: cBorder),
                               ),
-                              feulBorder: OutlineInputBorder(
+                              focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(8),
                                 borderSide: const BorderSide(
                                   color: cRed,
