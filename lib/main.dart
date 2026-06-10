@@ -646,25 +646,118 @@ class _FortnightlyTimesheetScreenState extends State<FortnightlyTimesheetScreen>
           Text('${weekTotal.toStringAsFixed(1)} hrs', style:TextStyle(fontWeight:FontWeight.w800,fontSize:13,color:isHigh?cOrange:cBlue))])])])));
   }
 
-  Widget _buildHistoryCard(Map<String,dynamic> ts) {
-    final start = DateTime.tryParse(ts['fortnight_start']??'');
-    final end   = DateTime.tryParse(ts['fortnight_end']??'');
-    final status = ts['status'] ?? 'pending';
-    return Container(margin: const EdgeInsets.only(bottom:10), child:raisedCard(radius:12, child:Padding(padding: const EdgeInsets.all(14), child:Column(crossAxisAlignment:CrossAxisAlignment.start, children:[
-      Row(children:[
-        Expanded(child:Text(start!=null&&end!=null ? '${fmtDateShort(start)} – ${fmtDate(end)}' : '—', style: const TextStyle(fontWeight:FontWeight.w700,fontSize:13,color:cText))),
-        StatusBadge(status)]),
-      const SizedBox(height:8),
-      Row(children:[
-        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start, children:[_SummaryRow(label:'Week 1',value:'${(ts['week1_hours']??0).toStringAsFixed(1)} hrs',bold:false), const SizedBox(height:3), _SummaryRow(label:'Week 2',value:'${(ts['week2_hours']??0).toStringAsFixed(1)} hrs',bold:false), const Divider(height:12,color:cBorder), _SummaryRow(label:'Total',value:'${(ts['total_hours']??0).toStringAsFixed(1)} hrs',bold:true,valueColor:cBlue)]))]),
-      ]),
-      if (status=='rejected' && (ts['manager_comment']??'').isNotEmpty)...[
-        const SizedBox(height:8),
-        Container(padding: const EdgeInsets.all(8), decoration:BoxDecoration(color: const Color(0xFFFDECEA), borderRadius:BorderRadius.circular(6)), child:Row(crossAxisAlignment:CrossAxisAlignment.start, children:[const Icon(Icons.info_outline,color:cRed,size:13), const SizedBox(width:6), Expanded(child:Text('Manager: ${ts['manager_comment']}', style: const TextStyle(fontSize:11,color:cRed)))]))],
-      if (status=='approved' && ts['approved_at']!=null)...[
-        const SizedBox(height:6),
-        Text('Approved ${_fmtDT(ts['approved_at'])}', style: const TextStyle(fontSize:11,color:cGreenText))]])));
-  }
+Widget _buildHistoryCard(Map<String, dynamic> ts) {
+  final start = DateTime.tryParse(ts['fortnight_start'] ?? '');
+  final end = DateTime.tryParse(ts['fortnight_end'] ?? '');
+  final status = ts['status'] ?? 'pending';
+
+  return Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    child: raisedCard(
+      radius: 12,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    start != null && end != null
+                        ? '${fmtDateShort(start)} – ${fmtDate(end)}'
+                        : '—',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: cText,
+                    ),
+                  ),
+                ),
+                StatusBadge(status),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SummaryRow(
+                        label: 'Week 1',
+                        value:
+                            '${(ts['week1_hours'] ?? 0).toStringAsFixed(1)} hrs',
+                        bold: false,
+                      ),
+                      const SizedBox(height: 3),
+                      _SummaryRow(
+                        label: 'Week 2',
+                        value:
+                            '${(ts['week2_hours'] ?? 0).toStringAsFixed(1)} hrs',
+                        bold: false,
+                      ),
+                      const Divider(height: 12, color: cBorder),
+                      _SummaryRow(
+                        label: 'Total',
+                        value:
+                            '${(ts['total_hours'] ?? 0).toStringAsFixed(1)} hrs',
+                        bold: true,
+                        valueColor: cBlue,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            if (status == 'rejected' &&
+                (ts['manager_comment'] ?? '').isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDECEA),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline,
+                        color: cRed, size: 13),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Manager: ${ts['manager_comment']}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: cRed,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (status == 'approved' && ts['approved_at'] != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Approved ${_fmtDT(ts['approved_at'])}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: cGreenText,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
   @override Widget build(BuildContext context) {
     final w1 = _weekHours(1), w2 = _weekHours(2), total = w1 + w2;
