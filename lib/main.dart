@@ -663,7 +663,7 @@ class _FortnightlyTimesheetScreenState extends State<FortnightlyTimesheetScreen>
         Container(padding: const EdgeInsets.all(8), decoration:BoxDecoration(color: const Color(0xFFFDECEA), borderRadius:BorderRadius.circular(6)), child:Row(crossAxisAlignment:CrossAxisAlignment.start, children:[const Icon(Icons.info_outline,color:cRed,size:13), const SizedBox(width:6), Expanded(child:Text('Manager: ${ts['manager_comment']}', style: const TextStyle(fontSize:11,color:cRed)))]))],
       if (status=='approved' && ts['approved_at']!=null)...[
         const SizedBox(height:6),
-        Text('Approved ${_fmtDT(ts['approved_at'])}', style: const TextStyle(fontSize:11,color:cGreenText))]]))));
+        Text('Approved ${_fmtDT(ts['approved_at'])}', style: const TextStyle(fontSize:11,color:cGreenText))]])));
   }
 
   @override Widget build(BuildContext context) {
@@ -785,7 +785,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
           if(d['shift_hours']!=null)...[const SizedBox(height:4),Row(children:[const Icon(Icons.access_time_rounded,color:cBlue,size:14),const SizedBox(width:6),Text('Total: ${(d['shift_hours']as num).toStringAsFixed(1)} hrs',style: const TextStyle(fontSize:12,color:cBlue,fontWeight:FontWeight.w600))])],
           if(d['lat']!=null)...[const SizedBox(height:4),Row(children:[const Icon(Icons.gps_fixed,color:cMuted,size:12),const SizedBox(width:6),Text('${(d['lat']as num).toStringAsFixed(5)}, ${(d['lng']as num).toStringAsFixed(5)}',style: const TextStyle(fontSize:10,color:cMuted,fontFamily:'monospace'))])],
           if(photoUrl!=null)...[const SizedBox(height:10),ClipRRect(borderRadius:BorderRadius.circular(8),child:Image.network(photoUrl,height:100,width:double.infinity,fit:BoxFit.cover,loadingBuilder:(ctx,child,prog)=>prog==null?child:Container(height:100,color:cSlate,child: const Center(child:CircularProgressIndicator(color:cPurple,strokeWidth:2))),errorBuilder:(_,__,___)=>Container(height:50,color:cSlate,child: const Center(child:Icon(Icons.broken_image_rounded,color:cMuted)))))],
-          if(d['shift_notes']!=null&&(d['shift_notes']as String).isNotEmpty)...[const SizedBox(height:8),Container(padding: const EdgeInsets.all(8),decoration:BoxDecoration(color:cSlate,borderRadius:BorderRadius.circular(6)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[const Icon(Icons.notes_rounded,color:cMuted,size:13),const SizedBox(width:6),Expanded(child:Text(d['shift_notes'],style: const TextStyle(fontSize:11,color:cNavyMid)))]))]])))); })))]));
+          if(d['shift_notes']!=null&&(d['shift_notes']as String).isNotEmpty)...[const SizedBox(height:8),Container(padding: const EdgeInsets.all(8),decoration:BoxDecoration(color:cSlate,borderRadius:BorderRadius.circular(6)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[const Icon(Icons.notes_rounded,color:cMuted,size:13),const SizedBox(width:6),Expanded(child:Text(d['shift_notes'],style: const TextStyle(fontSize:11,color:cNavyMid)))]))]])))); }))))]);
 }
 
 // ─── CLOCK IN SCREEN ───────────────────────────────────────
