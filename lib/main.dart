@@ -937,7 +937,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
         const SizedBox(height:20),
         saving?Container(width:double.infinity,padding: const EdgeInsets.symmetric(vertical:14),decoration:BoxDecoration(color:cSlate,borderRadius:BorderRadius.circular(12),border:Border.all(color:cBorder)),child: const Row(mainAxisAlignment:MainAxisAlignment.center,children:[SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2.5,color:cGreen)),SizedBox(width:10),Text('Saving to Supabase…',style:TextStyle(color:cMuted,fontWeight:FontWeight.w600,fontSize:14))]))
         :GestureDetector(onTap:_confirmOut,child:Container(width:double.infinity,padding: const EdgeInsets.symmetric(vertical:15),decoration:BoxDecoration(gradient: const LinearGradient(colors:[Color(0xFF7F1D1D),cRedDark]),borderRadius:BorderRadius.circular(12),boxShadow:[BoxShadow(color:cRed.withOpacity(0.45),blurRadius:10,offset: const Offset(0,4)),const BoxShadow(color:Color(0xFF450A0A),blurRadius:0,offset:Offset(0,3))]),child: const Text('Confirm Clock Out',textAlign:TextAlign.center,style:TextStyle(color:Colors.white,fontWeight:FontWeight.w800,fontSize:16))))]]))))]);}
-}
+
 
 // ═══════════════════════════════════════════════════════════
 // ─── MANAGER HOME ──────────────────────────────────════════
