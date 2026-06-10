@@ -656,7 +656,7 @@ class _FortnightlyTimesheetScreenState extends State<FortnightlyTimesheetScreen>
         StatusBadge(status)]),
       const SizedBox(height:8),
       Row(children:[
-        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start, children:[_SummaryRow(label:'Week 1',value:'${(ts['week1_hours']??0).toStringAsFixed(1)} hrs',bold:false), const SizedBox(height:3), _SummaryRow(label:'Week 2',value:'${(ts['week2_hours']??0).toStringAsFixed(1)} hrs',bold:false), const Divider(height:12,color:cBorder), _SummaryRow(label:'Total',value:'${(ts['total_hours']??0).toStringAsFixed(1)} hrs',bold:true,valueColor:cBlue)])]),
+        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start, children:[_SummaryRow(label:'Week 1',value:'${(ts['week1_hours']??0).toStringAsFixed(1)} hrs',bold:false), const SizedBox(height:3), _SummaryRow(label:'Week 2',value:'${(ts['week2_hours']??0).toStringAsFixed(1)} hrs',bold:false), const Divider(height:12,color:cBorder), _SummaryRow(label:'Total',value:'${(ts['total_hours']??0).toStringAsFixed(1)} hrs',bold:true,valueColor:cBlue)]))]),
       ]),
       if (status=='rejected' && (ts['manager_comment']??'').isNotEmpty)...[
         const SizedBox(height:8),
