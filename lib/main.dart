@@ -1227,7 +1227,7 @@ class _StaffMembersScreen extends StatelessWidget {
                         Text(u.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: cText)),
                         Text(u.email, style: const TextStyle(fontSize: 11, color: cMuted)),
                         const SizedBox(height: 3), RoleBadge(u.role)]))]))));
-              })));
+              })))]);
   }
 }
 
@@ -1449,7 +1449,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
                           Text('Clocked In & Saved ✓', style: TextStyle(color: cGreenText, fontWeight: FontWeight.w800, fontSize: 15))]))
                     : _ClockInButton(gpsState: gpsState, photoTaken: capturedPhoto != null,
                         clockedIn: clockedIn, branchSelected: selectedBranch != null, onTap: _confirmClockIn)]))),
-        const SizedBox(height: 20)]))));
+        const SizedBox(height: 20)]))))]);
 }
 
 // ─── GPS Panel ─────────────────────────────────────────────
