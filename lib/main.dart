@@ -644,7 +644,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: const Text('Forgot password?', style: TextStyle(color: cPurple,
               fontWeight: FontWeight.w700, fontSize: 13, decoration: TextDecoration.underline))),
         const SizedBox(height: 32),
-        const Text('Secured · Privacy Act 2020 compliant', style: TextStyle(color: cMuted, fontSize: 11))]))));
+        const Text('Secured · Privacy Act 2020 compliant', style: TextStyle(color: cMuted, fontSize: 11))]))))]);
 }
 
 // ─── FORGOT PASSWORD ───────────────────────────────────────
@@ -701,7 +701,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
                 style: const TextStyle(fontSize: 12, color: cGreenText), textAlign: TextAlign.center),
             const SizedBox(height: 16),
             PrimaryButton(label: 'Back to Sign in', onTap: widget.onBack,
-                colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)])])))));
+                colors: [cGreen, const Color(0xFF15803D)], shadowColor: cGreenDark)]))]))))]);
 }
 
 // ─── STAFF HOME ────────────────────────────────────────────
@@ -845,7 +845,7 @@ class _AdminHomeState extends State<AdminHome> {
               subtitle: 'Add, edit and delete users',
               gradient: [const Color(0xFF4A1D96), cPurple], shadowColor: const Color(0xFF2E1065),
               onTap: () => setState(() => subScreen = 'users')),
-        ])))));
+        ]))))]);
   }
 }
 
@@ -975,7 +975,7 @@ class _UserManagementScreenState extends State<_UserManagementScreen> {
                               decoration: BoxDecoration(color: const Color(0xFFFDECEA),
                                   borderRadius: BorderRadius.circular(8)),
                               child: const Icon(Icons.delete_rounded, color: cRed, size: 16)))])]))));
-                })))));
+                }))))]);
 }
 
 // ─── USER FORM SCREEN ──────────────────────────────────────
@@ -1084,7 +1084,7 @@ class _UserFormScreenState extends State<_UserFormScreen> {
                       onTap: _save,
                       colors: [cPurple, const Color(0xFF4F46E5)],
                       shadowColor: const Color(0xFF3730A3))]))),
-        ])))])));
+        ]))))])));
 }
 
 // ─── MANAGER HOME ──────────────────────────────────────────
@@ -1152,7 +1152,7 @@ class _ManagerHomeState extends State<ManagerHome> {
           StatCard(icon: Icons.check_circle_rounded, label: 'Checked In Today', value: 0),
           const SizedBox(height: 10),
           StatCard(icon: Icons.pending_actions_rounded, label: 'Pending Approvals', value: 0),
-        ])))));
+        ]))))]);
   }
 }
 
@@ -1686,7 +1686,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
                       boxShadow: [BoxShadow(color: cRed.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 4)),
                         const BoxShadow(color: Color(0xFF450A0A), blurRadius: 0, offset: Offset(0, 3))]),
                     child: const Text('Confirm Clock Out', textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16))))]])))));
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16))))]]))))]);
 }
 
 // ─── FORTNIGHTLY TIMESHEET ─────────────────────────────────
@@ -1895,7 +1895,7 @@ class _FortnightlyTimesheetScreenState extends State<FortnightlyTimesheetScreen>
                         child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                           Icon(Icons.lock_rounded, color: cGreenText, size: 16), SizedBox(width: 8),
                           Text('Approved & Locked', style: TextStyle(color: cGreenText, fontWeight: FontWeight.w800, fontSize: 14))])),
-                    const SizedBox(height: 20)]))))));
+                    const SizedBox(height: 20)])))))]);
   }
 
   Widget _buildHistoryCard(Map<String, dynamic> ts) {
@@ -2049,8 +2049,8 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
                             decoration: BoxDecoration(color: cSlate, borderRadius: BorderRadius.circular(6)),
                             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                               const Icon(Icons.notes_rounded, color: cMuted, size: 13), const SizedBox(width: 6),
-                              Expanded(child: Text(d['shift_notes'], style: const TextStyle(fontSize: 11, color: cNavyMid)))]))])]))]);
-                })))));
+                              Expanded(child: Text(d['shift_notes'], style: const TextStyle(fontSize: 11, color: cNavyMid)))]))]])]))]);
+                }))))]);
 }
 
 // ─── MANAGER TIMESHEETS SCREEN ─────────────────────────────
@@ -2217,5 +2217,5 @@ class _ManagerTimesheetsScreenState extends State<_ManagerTimesheetsScreen> {
                                 child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                                   Icon(Icons.save_rounded, color: Colors.white, size: 14), SizedBox(width: 6),
                                   Text('Save Payroll', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))]))))])]))])));
-                })))));
+                }))))]);
 }
