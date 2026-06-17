@@ -41,23 +41,26 @@ const Color cRedBg = Color(0x1FEF4444);
 const Color cRedBorder = Color(0x4DEF4444);
 const Color cAmberLight = Color(0xFFFEF3C7);
 const Color cAmberText = Color(0xFF92400E);
-const Color cAmber = Color(0xFFD97706);
 const Color cVioletLight = Color(0xFFEDE9FE);
 const Color cVioletText = Color(0xFF4C1D95);
 const Color cGreenText = Color(0xFF166534);
 const Color cBlue = Color(0xFF1D4ED8);
 const Color cOrange = Color(0xFFEA580C);
 const Color cOrangeDark = Color(0xFF9A3412);
+const Color cAmber = Color(0xFFD97706);
 
 // ─── Fortnight Helpers ─────────────────────────────────────
 DateTime fortnightStart(DateTime d) {
+  // Find the most recent Monday
   final monday = d.subtract(Duration(days: d.weekday - 1));
+  // Fortnight starts on even-week Mondays (ISO week number)
   final weekNum = _isoWeek(monday);
   if (weekNum % 2 == 1) return DateTime(monday.year, monday.month, monday.day);
   return DateTime(monday.year, monday.month, monday.day - 7);
 }
 
 DateTime fortnightEnd(DateTime start) => start.add(const Duration(days: 13));
+
 int _isoWeek(DateTime d) {
   final jan4 = DateTime(d.year, 1, 4);
   final startOfWeek1 = jan4.subtract(Duration(days: jan4.weekday - 1));
@@ -100,92 +103,8 @@ String fmtDateShort(DateTime d) {
   return '${d.day} ${m[d.month - 1]}';
 }
 
-// ─── Models ────────────────────────────────────────────────
-class AppUser {
-  final String id;
-  final String name;
-  String email, password, role;
-  AppUser({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.password,
-    required this.role,
-  });
-  factory AppUser.fromMap(Map<String, dynamic> m) => AppUser(
-    id: m['id'].toString(),
-    name: m['name'] ?? '',
-    email: m['email'] ?? '',
-    password: m['password'] ?? '',
-    role: m['role'] ?? 'Staff',
-  );
-}
-
-class ClockInRecord {
-  final DateTime timestamp;
-  final double lat, lng;
-  final Branch branch;
-  final File? photo;
-  String? supabaseId;
-  ClockInRecord({
-    required this.timestamp,
-    required this.lat,
-    required this.lng,
-    required this.branch,
-    this.photo,
-    this.supabaseId,
-  });
-}
-
 // ─── Supabase Service ──────────────────────────────────────
 class SupabaseService {
-  // ── User Management ──
-  static Future<List<AppUser>> getUsers() async {
-    final res = await _supabase
-        .from('users')
-        .select()
-        .order('role')
-        .order('name');
-    return (res as List).map((m) => AppUser.fromMap(m)).toList();
-  }
-
-  static Future<AppUser?> login(String email, String password) async {
-    final res = await _supabase
-        .from('users')
-        .select()
-        .eq('email', email.trim())
-        .eq('password', password)
-        .maybeSingle();
-    if (res == null) return null;
-    return AppUser.fromMap(res);
-  }
-
-  static Future<void> addUser(AppUser u) async {
-    await _supabase.from('users').insert({
-      'name': u.name,
-      'email': u.email,
-      'password': u.password,
-      'role': u.role,
-    });
-  }
-
-  static Future<void> updateUser(AppUser u) async {
-    await _supabase
-        .from('users')
-        .update({
-          'name': u.name,
-          'email': u.email,
-          'password': u.password,
-          'role': u.role,
-        })
-        .eq('id', u.id);
-  }
-
-  static Future<void> deleteUser(String id) async {
-    await _supabase.from('users').delete().eq('id', id);
-  }
-
-  // ── Photo Upload ──
   static Future<String> uploadPhoto({
     required File photo,
     required String userEmail,
@@ -195,9 +114,7 @@ class SupabaseService {
     final path =
         'clockin_photos/${safe}_${timestamp.millisecondsSinceEpoch}.jpg';
     final bytes = await photo.readAsBytes();
-    await _supabase.storage
-        .from('clockin-photos')
-        .uploadBinary(
+    await _supabase.storage.from('clockin-photos').uploadBinary(
           path,
           bytes,
           fileOptions: const FileOptions(
@@ -208,7 +125,6 @@ class SupabaseService {
     return _supabase.storage.from('clockin-photos').getPublicUrl(path);
   }
 
-  // ── Clock In/Out ──
   static Future<String> saveClockIn({
     required AppUser user,
     required Branch branch,
@@ -242,15 +158,12 @@ class SupabaseService {
     required String notes,
     required double shiftHours,
   }) async {
-    await _supabase
-        .from('shift_records')
-        .update({
-          'clock_out_time': clockOutTime.toIso8601String(),
-          'shift_status': 'completed',
-          'shift_notes': notes,
-          'shift_hours': shiftHours,
-        })
-        .eq('id', recordId);
+    await _supabase.from('shift_records').update({
+      'clock_out_time': clockOutTime.toIso8601String(),
+      'shift_status': 'completed',
+      'shift_notes': notes,
+      'shift_hours': shiftHours,
+    }).eq('id', recordId);
   }
 
   static Future<List<Map<String, dynamic>>> getUserRecords(String email) async {
@@ -262,6 +175,15 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res as List);
   }
 
+  static Future<List<Map<String, dynamic>>> getAllRecords() async {
+    final res = await _supabase
+        .from('shift_records')
+        .select()
+        .order('clock_in_time', ascending: false);
+    return List<Map<String, dynamic>>.from(res as List);
+  }
+
+  /// Get shift records for a user within a date range
   static Future<List<Map<String, dynamic>>> getUserRecordsInRange(
     String email,
     DateTime from,
@@ -277,6 +199,7 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res as List);
   }
 
+  /// Get all shift records within a date range (manager view)
   static Future<List<Map<String, dynamic>>> getAllRecordsInRange(
     DateTime from,
     DateTime to,
@@ -290,7 +213,7 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res as List);
   }
 
-  // ── Timesheet ──
+  // ── Timesheet Submissions ──
   static Future<void> submitTimesheet({
     required String userEmail,
     required String userName,
@@ -301,6 +224,7 @@ class SupabaseService {
     required double week2,
     required double total,
   }) async {
+    // Check if already exists for this fortnight
     final existing = await _supabase
         .from('timesheet_submissions')
         .select('id, status')
@@ -310,18 +234,15 @@ class SupabaseService {
       final row = existing.first;
       if (row['status'] == 'approved')
         throw Exception('Timesheet already approved and locked.');
-      await _supabase
-          .from('timesheet_submissions')
-          .update({
-            'week1_hours': week1,
-            'week2_hours': week2,
-            'total_hours': total,
-            'status': 'pending',
-            'submitted_at': DateTime.now().toIso8601String(),
-            'manager_comment': '',
-            'approved_at': null,
-          })
-          .eq('id', row['id']);
+      await _supabase.from('timesheet_submissions').update({
+        'week1_hours': week1,
+        'week2_hours': week2,
+        'total_hours': total,
+        'status': 'pending',
+        'submitted_at': DateTime.now().toIso8601String(),
+        'manager_comment': '',
+        'approved_at': null,
+      }).eq('id', row['id']);
     } else {
       await _supabase.from('timesheet_submissions').insert({
         'user_email': userEmail,
@@ -364,21 +285,18 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res as List);
   }
 
+  // Manager actions
   static Future<void> reviewTimesheet({
     required String id,
     required String status,
     required String comment,
   }) async {
-    await _supabase
-        .from('timesheet_submissions')
-        .update({
-          'status': status,
-          'manager_comment': comment,
-          'reviewed_at': DateTime.now().toIso8601String(),
-          if (status == 'approved')
-            'approved_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', id);
+    await _supabase.from('timesheet_submissions').update({
+      'status': status,
+      'manager_comment': comment,
+      'reviewed_at': DateTime.now().toIso8601String(),
+      if (status == 'approved') 'approved_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
   }
 
   static Future<List<Map<String, dynamic>>> getAllSubmissionsForFortnight(
@@ -392,6 +310,7 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res as List);
   }
 
+  // Payroll summary save
   static Future<void> savePayrollSummary({
     required String userEmail,
     required String userName,
@@ -454,8 +373,7 @@ const List<Branch> kBranches = [
 double haversineDistance(double lat1, double lng1, double lat2, double lng2) {
   const R = 6371000.0;
   final dLat = (lat2 - lat1) * pi / 180, dLng = (lng2 - lng1) * pi / 180;
-  final a =
-      sin(dLat / 2) * sin(dLat / 2) +
+  final a = sin(dLat / 2) * sin(dLat / 2) +
       cos(lat1 * pi / 180) *
           cos(lat2 * pi / 180) *
           sin(dLng / 2) *
@@ -463,60 +381,117 @@ double haversineDistance(double lat1, double lng1, double lat2, double lng2) {
   return R * 2 * atan2(sqrt(a), sqrt(1 - a));
 }
 
+// ─── Models ────────────────────────────────────────────────
+class ClockInRecord {
+  final DateTime timestamp;
+  final double lat, lng;
+  final Branch branch;
+  final File? photo;
+  String? supabaseId;
+  ClockInRecord({
+    required this.timestamp,
+    required this.lat,
+    required this.lng,
+    required this.branch,
+    this.photo,
+    this.supabaseId,
+  });
+}
+
+class AppUser {
+  final int id;
+  final String name;
+  String email, password;
+  final String role;
+  AppUser({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.password,
+    required this.role,
+  });
+}
+
 // ─── App Root ──────────────────────────────────────────────
-class ModeRentalsApp extends StatelessWidget {
+class ModeRentalsApp extends StatefulWidget {
   const ModeRentalsApp({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Mode Rentals',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      fontFamily: 'SF Pro Display',
-      scaffoldBackgroundColor: cSlate,
-      colorScheme: ColorScheme.fromSeed(seedColor: cIndigo),
+  State<ModeRentalsApp> createState() => _ModeRentalsAppState();
+}
+
+class _ModeRentalsAppState extends State<ModeRentalsApp> {
+  final List<AppUser> users = [
+    AppUser(
+      id: 1,
+      name: 'Admin User',
+      email: 'hmcsampath@hotmail.com',
+      password: 'Admin@123',
+      role: 'Admin',
     ),
-    home: const _AppShell(),
-  );
-}
-
-class _AppShell extends StatefulWidget {
-  const _AppShell();
-  @override
-  State<_AppShell> createState() => _AppShellState();
-}
-
-class _AppShellState extends State<_AppShell> {
+    AppUser(
+      id: 2,
+      name: 'Manager User',
+      email: 'hmcsampath@hotmail.com',
+      password: 'Manager@123',
+      role: 'Manager',
+    ),
+    AppUser(
+      id: 3,
+      name: 'Staff User',
+      email: 'hmcsampath@hotmail.com',
+      password: 'Staff@123',
+      role: 'Staff',
+    ),
+  ];
   String screen = 'login';
   AppUser? currentUser;
-
   void login(AppUser u) => setState(() {
-    currentUser = u;
-    screen = u.role.toLowerCase();
-  });
+        currentUser = u;
+        screen = u.role.toLowerCase();
+      });
   void logout() => setState(() {
-    currentUser = null;
-    screen = 'login';
-  });
+        currentUser = null;
+        screen = 'login';
+      });
   void goForgot() => setState(() {
-    screen = 'forgot';
-  });
+        screen = 'forgot';
+      });
   void goLogin() => setState(() {
-    screen = 'login';
-  });
-
+        screen = 'login';
+      });
+  void addUser(AppUser u) => setState(() => users.add(u));
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: cSlate,
-    body: SafeArea(
-      child: switch (screen) {
-        'forgot' => ForgotScreen(onBack: goLogin),
-        'staff' => StaffHome(user: currentUser!, onLogout: logout),
-        'manager' => ManagerHome(user: currentUser!, onLogout: logout),
-        'admin' => AdminHome(user: currentUser!, onLogout: logout),
-        _ => LoginScreen(onLogin: login, onForgot: goForgot),
-      },
-    ),
-  );
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'Mode Rentals',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          fontFamily: 'SF Pro Display',
+          scaffoldBackgroundColor: cSlate,
+          colorScheme: ColorScheme.fromSeed(seedColor: cIndigo),
+        ),
+        home: Scaffold(
+          backgroundColor: cSlate,
+          body: SafeArea(
+            child: switch (screen) {
+              'forgot' => ForgotScreen(onBack: goLogin),
+              'staff' => StaffHome(user: currentUser!, onLogout: logout),
+              'manager' => ManagerHome(
+                  user: currentUser!,
+                  users: users,
+                  onLogout: logout,
+                ),
+              'admin' => AdminHome(
+                  user: currentUser!,
+                  users: users,
+                  onAddUser: addUser,
+                  onLogout: logout,
+                ),
+              _ =>
+                LoginScreen(users: users, onLogin: login, onForgot: goForgot),
+            },
+          ),
+        ),
+      );
 }
 
 // ─── Helpers ───────────────────────────────────────────────
@@ -528,38 +503,36 @@ String _greeting() {
 }
 
 Widget _bgGradient({required Widget child}) => Container(
-  decoration: const BoxDecoration(
-    gradient: LinearGradient(
-      colors: [cSlate, cSlate2],
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-    ),
-  ),
-  child: child,
-);
-
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [cSlate, cSlate2],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: child,
+    );
 Widget raisedCard({required Widget child, double radius = 12}) => Container(
-  decoration: BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(radius),
-    border: Border.all(color: cBorder),
-    boxShadow: [
-      BoxShadow(
-        color: cNavy.withOpacity(0.07),
-        blurRadius: 8,
-        offset: const Offset(0, 3),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: cBorder),
+        boxShadow: [
+          BoxShadow(
+            color: cNavy.withOpacity(0.07),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+          const BoxShadow(color: cBorder, blurRadius: 0, offset: Offset(0, 3)),
+          BoxShadow(
+            color: Colors.white.withOpacity(0.9),
+            blurRadius: 0,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
-      const BoxShadow(color: cBorder, blurRadius: 0, offset: Offset(0, 3)),
-      BoxShadow(
-        color: Colors.white.withOpacity(0.9),
-        blurRadius: 0,
-        offset: const Offset(0, 1),
-      ),
-    ],
-  ),
-  child: child,
-);
-
+      child: child,
+    );
 String _fmtDT(String? iso) {
   if (iso == null) return '--';
   final dt = DateTime.tryParse(iso)?.toLocal();
@@ -590,8 +563,7 @@ class StatusBadge extends StatelessWidget {
   const StatusBadge(this.status, {super.key});
   @override
   Widget build(BuildContext context) {
-    final cfg =
-        {
+    final cfg = {
           'pending': [cAmberLight, cAmberText, '⏳ Pending'],
           'approved': [cGreenLight, cGreenText, '✓ Approved'],
           'rejected': [const Color(0xFFFDECEA), cRed, '✗ Rejected'],
@@ -623,77 +595,78 @@ class AppHeader extends StatelessWidget {
   const AppHeader({super.key, this.onLogout});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(16, 12, 12, 14),
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        colors: [cNavyMid, cNavy],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-    ),
-    child: Row(
-      children: [
-        Container(
-          width: 22,
-          height: 3,
-          decoration: BoxDecoration(
-            color: const Color(0xFF818CF8),
-            borderRadius: BorderRadius.circular(2),
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 14),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [cNavyMid, cNavy],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
         ),
-        const SizedBox(width: 6),
-        const Text(
-          'mode',
-          style: TextStyle(
-            color: Color(0xFF818CF8),
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(width: 2),
-        const Padding(
-          padding: EdgeInsets.only(bottom: 8),
-          child: Text(
-            'TM',
-            style: TextStyle(
-              color: Color(0xFF818CF8),
-              fontSize: 8,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const Spacer(),
-        if (onLogout != null)
-          GestureDetector(
-            onTap: onLogout,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 22,
+              height: 3,
               decoration: BoxDecoration(
-                color: cRedBg,
-                border: Border.all(color: cRedBorder),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.logout_rounded, color: cRedLight, size: 14),
-                  SizedBox(width: 5),
-                  Text(
-                    'Sign Out',
-                    style: TextStyle(
-                      color: cRedLight,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+                color: const Color(0xFF818CF8),
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-          ),
-      ],
-    ),
-  );
+            const SizedBox(width: 6),
+            const Text(
+              'mode',
+              style: TextStyle(
+                color: Color(0xFF818CF8),
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(width: 2),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'TM',
+                style: TextStyle(
+                  color: Color(0xFF818CF8),
+                  fontSize: 8,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Spacer(),
+            if (onLogout != null)
+              GestureDetector(
+                onTap: onLogout,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: cRedBg,
+                    border: Border.all(color: cRedBorder),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.logout_rounded, color: cRedLight, size: 14),
+                      SizedBox(width: 5),
+                      Text(
+                        'Sign Out',
+                        style: TextStyle(
+                          color: cRedLight,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
 }
 
 // ─── Shared Widgets ────────────────────────────────────────
@@ -702,8 +675,7 @@ class RoleBadge extends StatelessWidget {
   const RoleBadge(this.role, {super.key});
   @override
   Widget build(BuildContext context) {
-    final s =
-        {
+    final s = {
           'Admin': [cAmberLight, cAmberText],
           'Manager': [cVioletLight, cVioletText],
           'Staff': [cGreenLight, cGreenText],
@@ -752,36 +724,36 @@ class StyledInput extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: cBorder),
-      boxShadow: [
-        BoxShadow(
-          color: cNavy.withOpacity(0.06),
-          blurRadius: 4,
-          offset: const Offset(0, 2),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cBorder),
+          boxShadow: [
+            BoxShadow(
+              color: cNavy.withOpacity(0.06),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-      ],
-    ),
-    child: TextField(
-      controller: ctrl,
-      obscureText: obscure,
-      keyboardType: keyboard,
-      style: const TextStyle(fontSize: 14, color: cText),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: cMuted, fontSize: 14),
-        suffixIcon: suffix,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
+        child: TextField(
+          controller: ctrl,
+          obscureText: obscure,
+          keyboardType: keyboard,
+          style: const TextStyle(fontSize: 14, color: cText),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(color: cMuted, fontSize: 14),
+            suffixIcon: suffix,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+            border: InputBorder.none,
+          ),
         ),
-        border: InputBorder.none,
-      ),
-    ),
-  );
+      );
 }
 
 class InputLabel extends StatelessWidget {
@@ -789,16 +761,16 @@ class InputLabel extends StatelessWidget {
   const InputLabel(this.text, {super.key});
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 5),
-    child: Text(
-      text,
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: Color(0xFF475569),
-      ),
-    ),
-  );
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF475569),
+          ),
+        ),
+      );
 }
 
 class PrimaryButton extends StatelessWidget {
@@ -815,41 +787,41 @@ class PrimaryButton extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: colors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: colors.last.withOpacity(0.45),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: colors,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: colors.last.withOpacity(0.45),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 0,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 0,
-            offset: const Offset(0, 3),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+            ),
           ),
-        ],
-      ),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-          fontSize: 15,
         ),
-      ),
-    ),
-  );
+      );
 }
 
 class ErrorBox extends StatelessWidget {
@@ -857,27 +829,27 @@ class ErrorBox extends StatelessWidget {
   const ErrorBox(this.msg, {super.key});
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: const Color(0xFFFDECEA),
-      border: Border.all(color: cRed.withOpacity(0.4)),
-      borderRadius: BorderRadius.circular(10),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.warning_amber_rounded, color: cRed, size: 18),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            msg,
-            style: const TextStyle(color: cRed, fontSize: 12, height: 1.5),
-          ),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFDECEA),
+          border: Border.all(color: cRed.withOpacity(0.4)),
+          borderRadius: BorderRadius.circular(10),
         ),
-      ],
-    ),
-  );
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: cRed, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                msg,
+                style: const TextStyle(color: cRed, fontSize: 12, height: 1.5),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class SuccessBox extends StatelessWidget {
@@ -885,26 +857,26 @@ class SuccessBox extends StatelessWidget {
   const SuccessBox(this.msg, {super.key});
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(10),
-    decoration: BoxDecoration(
-      color: cGreenLight,
-      border: Border.all(color: cGreenBorder),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.check_circle_outline, color: cGreen, size: 16),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            msg,
-            style: const TextStyle(color: cGreenText, fontSize: 12),
-          ),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: cGreenLight,
+          border: Border.all(color: cGreenBorder),
+          borderRadius: BorderRadius.circular(8),
         ),
-      ],
-    ),
-  );
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: cGreen, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                msg,
+                style: const TextStyle(color: cGreenText, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class StatCard extends StatelessWidget {
@@ -919,38 +891,109 @@ class StatCard extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => raisedCard(
-    child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: cSlate,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: cNavyMid, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
             children: [
-              Text(
-                '$value',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 22,
-                  color: cNavyMid,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: cSlate,
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: Icon(icon, color: cNavyMid, size: 22),
               ),
-              Text(label, style: const TextStyle(fontSize: 11, color: cMuted)),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$value',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 22,
+                      color: cNavyMid,
+                    ),
+                  ),
+                  Text(label,
+                      style: const TextStyle(fontSize: 11, color: cMuted)),
+                ],
+              ),
             ],
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
+}
+
+class UserRow extends StatelessWidget {
+  final AppUser u;
+  final bool showRole;
+  const UserRow({super.key, required this.u, this.showRole = false});
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: raisedCard(
+          radius: 10,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF312E81), cIndigo],
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: cIndigo.withOpacity(0.35),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      u.name[0].toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        u.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: cText,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        u.email,
+                        style: const TextStyle(fontSize: 11, color: cMuted),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                if (showRole) ...[const SizedBox(width: 6), RoleBadge(u.role)],
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 class _SummaryRow extends StatelessWidget {
@@ -965,175 +1008,165 @@ class _SummaryRow extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      Text(
-        label,
-        style: TextStyle(
-          fontSize: 13,
-          color: bold ? cText : cMuted,
-          fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
-        ),
-      ),
-      Text(
-        value,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
-          color: valueColor ?? (bold ? cText : cNavyMid),
-        ),
-      ),
-    ],
-  );
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: bold ? cText : cMuted,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
+              color: valueColor ?? (bold ? cText : cNavyMid),
+            ),
+          ),
+        ],
+      );
 }
 
 // ─── LOGIN ─────────────────────────────────────────────────
 class LoginScreen extends StatefulWidget {
+  final List<AppUser> users;
   final void Function(AppUser) onLogin;
   final VoidCallback onForgot;
-  const LoginScreen({super.key, required this.onLogin, required this.onForgot});
+  const LoginScreen({
+    super.key,
+    required this.users,
+    required this.onLogin,
+    required this.onForgot,
+  });
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
   final eCtrl = TextEditingController(), pCtrl = TextEditingController();
-  bool showPw = false, loading = false;
+  bool showPw = false;
   String err = '';
+  String? _validate() {
+    if (eCtrl.text.trim().isEmpty) return 'Email is required.';
+    if (!RegExp(r'^[\w.-]+@[\w.-]+\.\w+$').hasMatch(eCtrl.text.trim()))
+      return 'Invalid email format.';
+    if (pCtrl.text.isEmpty) return 'Password is required.';
+    if (pCtrl.text.length < 8) return 'Password must be at least 8 characters.';
+    return null;
+  }
 
-  Future<void> _login() async {
-    if (eCtrl.text.trim().isEmpty) {
-      setState(() => err = 'Email is required.');
+  void _login() {
+    final e = _validate();
+    if (e != null) {
+      setState(() => err = e);
       return;
     }
-    if (!RegExp(r'^[\w.-]+@[\w.-]+\.\w+$').hasMatch(eCtrl.text.trim())) {
-      setState(() => err = 'Invalid email format.');
+    final m = widget.users
+        .where((u) => u.email == eCtrl.text.trim() && u.password == pCtrl.text)
+        .firstOrNull;
+    if (m == null) {
+      setState(() => err = 'Incorrect email or password.');
       return;
     }
-    if (pCtrl.text.isEmpty) {
-      setState(() => err = 'Password is required.');
-      return;
-    }
-    setState(() {
-      loading = true;
-      err = '';
-    });
-    try {
-      final user = await SupabaseService.login(eCtrl.text.trim(), pCtrl.text);
-      if (!mounted) return;
-      if (user == null) {
-        setState(() {
-          err = 'Incorrect email or password.';
-          loading = false;
-        });
-        return;
-      }
-      setState(() => loading = false);
-      widget.onLogin(user);
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          err = 'Login error: $e';
-          loading = false;
-        });
-    }
+    widget.onLogin(m);
   }
 
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      const AppHeader(),
-      Expanded(
-        child: _bgGradient(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 76,
-                  height: 76,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [cNavyMid, cNavyLight],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: cNavy.withOpacity(0.4),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
+        children: [
+          const AppHeader(),
+          Expanded(
+            child: _bgGradient(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 76,
+                      height: 76,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [cNavyMid, cNavyLight],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cNavy.withOpacity(0.4),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Text('🚗', style: TextStyle(fontSize: 38)),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const Text(
-                  'Welcome to Mode',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 24,
-                    color: cText,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Sign in to your account',
-                  style: TextStyle(color: cMuted, fontSize: 14),
-                ),
-                const SizedBox(height: 28),
-                StyledInput(
-                  hint: 'Email address',
-                  ctrl: eCtrl,
-                  keyboard: TextInputType.emailAddress,
-                ),
-                StyledInput(
-                  hint: 'Password',
-                  ctrl: pCtrl,
-                  obscure: !showPw,
-                  suffix: IconButton(
-                    icon: Icon(
-                      showPw ? Icons.visibility_off : Icons.visibility,
-                      color: cMuted,
-                      size: 20,
+                      child: const Center(
+                        child: Text('🚗', style: TextStyle(fontSize: 38)),
+                      ),
                     ),
-                    onPressed: () => setState(() => showPw = !showPw),
-                  ),
-                ),
-                if (err.isNotEmpty) ErrorBox(err),
-                loading
-                    ? const CircularProgressIndicator(color: cIndigo)
-                    : PrimaryButton(label: 'Sign in', onTap: _login),
-                const SizedBox(height: 16),
-                GestureDetector(
-                  onTap: widget.onForgot,
-                  child: const Text(
-                    'Forgot password?',
-                    style: TextStyle(
-                      color: cPurple,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      decoration: TextDecoration.underline,
+                    const SizedBox(height: 22),
+                    const Text(
+                      'Welcome to Mode',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 24,
+                        color: cText,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Sign in to your account',
+                      style: TextStyle(color: cMuted, fontSize: 14),
+                    ),
+                    const SizedBox(height: 28),
+                    StyledInput(
+                      hint: 'Email address',
+                      ctrl: eCtrl,
+                      keyboard: TextInputType.emailAddress,
+                    ),
+                    StyledInput(
+                      hint: 'Password',
+                      ctrl: pCtrl,
+                      obscure: !showPw,
+                      suffix: IconButton(
+                        icon: Icon(
+                          showPw ? Icons.visibility_off : Icons.visibility,
+                          color: cMuted,
+                          size: 20,
+                        ),
+                        onPressed: () => setState(() => showPw = !showPw),
+                      ),
+                    ),
+                    if (err.isNotEmpty) ErrorBox(err),
+                    PrimaryButton(label: 'Sign in', onTap: _login),
+                    const SizedBox(height: 16),
+                    GestureDetector(
+                      onTap: widget.onForgot,
+                      child: const Text(
+                        'Forgot password?',
+                        style: TextStyle(
+                          color: cPurple,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    const Text(
+                      'Secured · Privacy Act 2020 compliant',
+                      style: TextStyle(color: cMuted, fontSize: 11),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 32),
-                const Text(
-                  'Secured · Privacy Act 2020 compliant',
-                  style: TextStyle(color: cMuted, fontSize: 11),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
-    ],
-  );
+        ],
+      );
 }
 
 // ─── FORGOT PASSWORD ───────────────────────────────────────
@@ -1166,139 +1199,139 @@ class _ForgotScreenState extends State<ForgotScreen> {
 
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      const AppHeader(),
-      Expanded(
-        child: _bgGradient(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextButton.icon(
-                  onPressed: widget.onBack,
-                  icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                  label: const Text(
-                    'Back to Sign in',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: cPurple,
-                    padding: EdgeInsets.zero,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [cNavyMid, cNavyLight],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: cNavy.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+        children: [
+          const AppHeader(),
+          Expanded(
+            child: _bgGradient(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextButton.icon(
+                      onPressed: widget.onBack,
+                      icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                      label: const Text(
+                        'Back to Sign in',
+                        style: TextStyle(fontWeight: FontWeight.w700),
                       ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.lock_reset_rounded,
-                      color: Color(0xFF818CF8),
-                      size: 26,
+                      style: TextButton.styleFrom(
+                        foregroundColor: cPurple,
+                        padding: EdgeInsets.zero,
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Reset Password',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
-                    color: cText,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  "Enter your email and we'll send you a reset link.",
-                  style: TextStyle(color: cMuted, fontSize: 13),
-                ),
-                const SizedBox(height: 24),
-                if (!sent) ...[
-                  const InputLabel('Email Address'),
-                  StyledInput(
-                    hint: 'Your email address',
-                    ctrl: ctrl,
-                    keyboard: TextInputType.emailAddress,
-                  ),
-                  if (err.isNotEmpty) ErrorBox(err),
-                  PrimaryButton(
-                    label: 'Send Reset Link',
-                    onTap: _send,
-                    colors: [cPurple, const Color(0xFF4F46E5)],
-                    shadowColor: const Color(0xFF3730A3),
-                  ),
-                ] else
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: cGreenLight,
-                      border: Border.all(color: cGreenBorder),
-                      borderRadius: BorderRadius.circular(14),
+                    const SizedBox(height: 20),
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [cNavyMid, cNavyLight],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cNavy.withOpacity(0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.lock_reset_rounded,
+                          color: Color(0xFF818CF8),
+                          size: 26,
+                        ),
+                      ),
                     ),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: cGreen.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(26),
-                          ),
-                          child: const Icon(
-                            Icons.mark_email_read_rounded,
-                            color: cGreen,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Reset link sent!',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: cGreenText,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Check ${ctrl.text.trim()} for your password reset link.',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: cGreenText,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 16),
-                        PrimaryButton(
-                          label: 'Back to Sign in',
-                          onTap: widget.onBack,
-                          colors: [cGreen, const Color(0xFF15803D)],
-                          shadowColor: cGreenDark,
-                        ),
-                      ],
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Reset Password',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                        color: cText,
+                      ),
                     ),
-                  ),
-              ],
+                    const SizedBox(height: 6),
+                    const Text(
+                      "Enter your email and we'll send you a reset link.",
+                      style: TextStyle(color: cMuted, fontSize: 13),
+                    ),
+                    const SizedBox(height: 24),
+                    if (!sent) ...[
+                      const InputLabel('Email Address'),
+                      StyledInput(
+                        hint: 'Your email address',
+                        ctrl: ctrl,
+                        keyboard: TextInputType.emailAddress,
+                      ),
+                      if (err.isNotEmpty) ErrorBox(err),
+                      PrimaryButton(
+                        label: 'Send Reset Link',
+                        onTap: _send,
+                        colors: [cPurple, const Color(0xFF4F46E5)],
+                        shadowColor: const Color(0xFF3730A3),
+                      ),
+                    ] else
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: cGreenLight,
+                          border: Border.all(color: cGreenBorder),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: cGreen.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(26),
+                              ),
+                              child: const Icon(
+                                Icons.mark_email_read_rounded,
+                                color: cGreen,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Reset link sent!',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: cGreenText,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Check ${ctrl.text.trim()} for your password reset link.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: cGreenText,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            PrimaryButton(
+                              label: 'Back to Sign in',
+                              onTap: widget.onBack,
+                              colors: [cGreen, const Color(0xFF15803D)],
+                              shadowColor: cGreenDark,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
-    ],
-  );
+        ],
+      );
 }
 
 // ─── STAFF HOME ────────────────────────────────────────────
@@ -1472,199 +1505,115 @@ class _NavTile extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.last.withOpacity(0.45),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
-          ),
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 0,
-            offset: const Offset(0, 5),
-          ),
-          BoxShadow(
-            color: Colors.white.withOpacity(0.1),
-            blurRadius: 0,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white24),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: gradient,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            child: Icon(icon, color: Colors.white, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: Colors.white54,
-            size: 22,
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-// ─── ADMIN HOME ────────────────────────────────────────────
-class AdminHome extends StatefulWidget {
-  final AppUser user;
-  final VoidCallback onLogout;
-  const AdminHome({super.key, required this.user, required this.onLogout});
-  @override
-  State<AdminHome> createState() => _AdminHomeState();
-}
-
-class _AdminHomeState extends State<AdminHome> {
-  String? subScreen;
-
-  @override
-  Widget build(BuildContext context) {
-    if (subScreen == 'users')
-      return _UserManagementScreen(
-        onBack: () => setState(() => subScreen = null),
-        onLogout: widget.onLogout,
-      );
-
-    return Column(
-      children: [
-        AppHeader(onLogout: widget.onLogout),
-        Expanded(
-          child: _bgGradient(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [cNavyMid, cNavy],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: cNavy.withOpacity(0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            RoleBadge(widget.user.role),
-                            const SizedBox(width: 8),
-                            Text(
-                              widget.user.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.user.email,
-                          style: const TextStyle(
-                            color: Colors.white60,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Administration',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: cNavyLight,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _NavTile(
-                    icon: Icons.manage_accounts_rounded,
-                    label: 'User Management',
-                    subtitle: 'Add, edit and delete users',
-                    gradient: [const Color(0xFF4A1D96), cPurple],
-                    shadowColor: const Color(0xFF2E1065),
-                    onTap: () => setState(() => subScreen = 'users'),
-                  ),
-                ],
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: gradient.last.withOpacity(0.45),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
               ),
-            ),
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 0,
+                offset: const Offset(0, 5),
+              ),
+              BoxShadow(
+                color: Colors.white.withOpacity(0.1),
+                blurRadius: 0,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Icon(icon, color: Colors.white, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white54,
+                size: 22,
+              ),
+            ],
           ),
         ),
-      ],
-    );
-  }
+      );
 }
 
-// ─── USER MANAGEMENT SCREEN ────────────────────────────────
-class _UserManagementScreen extends StatefulWidget {
+// ═══════════════════════════════════════════════════════════
+// ─── FORTNIGHTLY TIMESHEET SCREEN ──────────────────────────
+// ═══════════════════════════════════════════════════════════
+class FortnightlyTimesheetScreen extends StatefulWidget {
+  final AppUser user;
   final VoidCallback onBack, onLogout;
-  const _UserManagementScreen({required this.onBack, required this.onLogout});
+  const FortnightlyTimesheetScreen({
+    super.key,
+    required this.user,
+    required this.onBack,
+    required this.onLogout,
+  });
   @override
-  State<_UserManagementScreen> createState() => _UserManagementScreenState();
+  State<FortnightlyTimesheetScreen> createState() =>
+      _FortnightlyTimesheetScreenState();
 }
 
-class _UserManagementScreenState extends State<_UserManagementScreen> {
-  List<AppUser> users = [];
+class _FortnightlyTimesheetScreenState
+    extends State<FortnightlyTimesheetScreen> {
   bool loading = true;
+  bool viewingHistory = false;
+  List<Map<String, dynamic>> shiftRecords = [];
+  Map<String, dynamic>? submission;
+  List<Map<String, dynamic>> history = [];
+  bool historyLoading = false;
   String err = '';
+
+  late DateTime fnStart, fnEnd;
 
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    fnStart = fortnightStart(now);
+    fnEnd = fortnightEnd(fnStart);
     _load();
   }
 
@@ -1674,33 +1623,126 @@ class _UserManagementScreenState extends State<_UserManagementScreen> {
       err = '';
     });
     try {
-      final u = await SupabaseService.getUsers();
-      if (mounted)
-        setState(() {
-          users = u;
-          loading = false;
-        });
+      final records = await SupabaseService.getUserRecordsInRange(
+        widget.user.email,
+        fnStart,
+        fnEnd,
+      );
+      final sub = await SupabaseService.getTimesheetStatus(
+        widget.user.email,
+        fnStart,
+      );
+      setState(() {
+        shiftRecords = records;
+        submission = sub;
+        loading = false;
+      });
     } catch (e) {
-      if (mounted)
-        setState(() {
-          err = e.toString();
-          loading = false;
-        });
+      setState(() {
+        err = e.toString();
+        loading = false;
+      });
     }
   }
 
-  Future<void> _deleteUser(AppUser u) async {
-    final confirm = await showDialog<bool>(
+  Future<void> _loadHistory() async {
+    setState(() {
+      historyLoading = true;
+    });
+    try {
+      final h = await SupabaseService.getAllTimesheetHistory(widget.user.email);
+      setState(() {
+        history = h;
+        historyLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        historyLoading = false;
+      });
+    }
+  }
+
+  // Calculate hours per day from shift_records
+  Map<String, double> _dailyHours() {
+    final Map<String, double> daily = {};
+    for (final r in shiftRecords) {
+      if (r['shift_hours'] == null) continue;
+      final dt = DateTime.tryParse(r['clock_in_time'] ?? '')?.toLocal();
+      if (dt == null) continue;
+      final key =
+          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      daily[key] = (daily[key] ?? 0) + (r['shift_hours'] as num).toDouble();
+    }
+    return daily;
+  }
+
+  double _weekHours(int week) {
+    final daily = _dailyHours();
+    double total = 0;
+    final weekStart =
+        week == 1 ? fnStart : fnStart.add(const Duration(days: 7));
+    for (int i = 0; i < 7; i++) {
+      final d = weekStart.add(Duration(days: i));
+      final key =
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      total += daily[key] ?? 0;
+    }
+    return total;
+  }
+
+  bool get _isApproved => submission?['status'] == 'approved';
+  bool get _isSubmitted => submission != null;
+  bool get _canSubmit => !loading && !_isApproved;
+
+  Future<void> _submit() async {
+    final w1 = _weekHours(1), w2 = _weekHours(2), total = w1 + w2;
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
-          'Delete User',
+          'Submit Timesheet',
           style: TextStyle(fontWeight: FontWeight.w800, color: cNavyMid),
         ),
-        content: Text(
-          'Are you sure you want to delete "${u.name}"?\nThis cannot be undone.',
-          style: const TextStyle(color: cNavyLight, fontSize: 13),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Submit your fortnightly timesheet to your manager for review?',
+              style: TextStyle(color: cNavyLight, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: cSlate,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  _SummaryRow(
+                    label: 'Week 1',
+                    value: '${w1.toStringAsFixed(1)} hrs',
+                    bold: false,
+                  ),
+                  const SizedBox(height: 4),
+                  _SummaryRow(
+                    label: 'Week 2',
+                    value: '${w2.toStringAsFixed(1)} hrs',
+                    bold: false,
+                  ),
+                  const Divider(height: 16, color: cBorder),
+                  _SummaryRow(
+                    label: 'Total',
+                    value: '${total.toStringAsFixed(1)} hrs',
+                    bold: true,
+                    valueColor: cBlue,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -1710,31 +1752,43 @@ class _UserManagementScreenState extends State<_UserManagementScreen> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: cRed,
+              backgroundColor: cBlue,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
             child: const Text(
-              'Delete',
+              'Submit',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
         ],
       ),
     );
-    if (confirm != true) return;
+    if (confirmed != true) return;
     try {
-      await SupabaseService.deleteUser(u.id);
-      _load();
-      if (mounted)
+      await SupabaseService.submitTimesheet(
+        userEmail: widget.user.email,
+        userName: widget.user.name,
+        branchName: shiftRecords.isNotEmpty
+            ? shiftRecords.first['branch_name'] ?? ''
+            : '',
+        fnStart: fnStart,
+        fnEnd: fnEnd,
+        week1: w1,
+        week2: w2,
+        total: total,
+      );
+      if (mounted) {
+        _load();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${u.name} deleted.'),
+          const SnackBar(
+            content: Text('Timesheet submitted successfully!'),
             backgroundColor: cGreen,
           ),
         );
+      }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1743,780 +1797,247 @@ class _UserManagementScreenState extends State<_UserManagementScreen> {
     }
   }
 
-  void _openForm({AppUser? user}) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _UserFormScreen(user: user, onSaved: _load),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      AppHeader(onLogout: widget.onLogout),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF4A1D96), cPurple],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+  Widget _buildWeekCard(int week) {
+    final daily = _dailyHours();
+    final weekStart =
+        week == 1 ? fnStart : fnStart.add(const Duration(days: 7));
+    double weekTotal = 0;
+    final rows = <Widget>[];
+    for (int i = 0; i < 7; i++) {
+      final d = weekStart.add(Duration(days: i));
+      final key =
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      final hrs = daily[key] ?? 0;
+      weekTotal += hrs;
+      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 36,
+                child: Text(
+                  dayNames[i],
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: cMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Text(
+                fmtDateShort(d),
+                style: const TextStyle(fontSize: 12, color: cMuted),
+              ),
+              const Spacer(),
+              if (hrs > 0)
+                Text(
+                  '${hrs.toStringAsFixed(1)} hrs',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: hrs > 10 ? cOrange : cText,
+                  ),
+                )
+              else
+                Text('—', style: const TextStyle(fontSize: 12, color: cBorder)),
+            ],
           ),
         ),
+      );
+    }
+    // Flag if week total significantly exceeds 40 hrs
+    final isHigh = weekTotal > 45;
+    return raisedCard(
+      radius: 14,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GestureDetector(
-              onTap: widget.onBack,
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.arrow_back_ios_rounded,
-                    color: Colors.white70,
-                    size: 14,
-                  ),
-                  SizedBox(width: 4),
-                  Text(
-                    'Back',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
             Row(
               children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'User Management',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 22,
-                        ),
-                      ),
-                      Text(
-                        'Add, edit and delete users',
-                        style: TextStyle(color: Colors.white70, fontSize: 13),
-                      ),
-                    ],
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: cBlue,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
-                GestureDetector(
-                  onTap: () => _openForm(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white30),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.person_add_rounded,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Add User',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      Expanded(
-        child: _bgGradient(
-          child: loading
-              ? const Center(child: CircularProgressIndicator(color: cPurple))
-              : err.isNotEmpty
-              ? Center(
-                  child: Text(
-                    'Error: $err',
-                    style: const TextStyle(color: cRed),
-                  ),
-                )
-              : users.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No users found.',
-                    style: TextStyle(color: cMuted, fontSize: 14),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  color: cPurple,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: users.length,
-                    itemBuilder: (_, i) {
-                      final u = users[i];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: raisedCard(
-                          radius: 12,
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFF312E81), cIndigo],
-                                    ),
-                                    borderRadius: BorderRadius.circular(22),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: cIndigo.withOpacity(0.35),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      u.name[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        u.name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 14,
-                                          color: cText,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      Text(
-                                        u.email,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: cMuted,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      RoleBadge(u.role),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Column(
-                                  children: [
-                                    GestureDetector(
-                                      onTap: () => _openForm(user: u),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: cVioletLight,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: const Icon(
-                                          Icons.edit_rounded,
-                                          color: cVioletText,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    GestureDetector(
-                                      onTap: () => _deleteUser(u),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFDECEA),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: const Icon(
-                                          Icons.delete_rounded,
-                                          color: cRed,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-        ),
-      ),
-    ],
-  );
-}
-
-// ─── USER FORM SCREEN ──────────────────────────────────────
-class _UserFormScreen extends StatefulWidget {
-  final AppUser? user;
-  final VoidCallback onSaved;
-  const _UserFormScreen({this.user, required this.onSaved});
-  @override
-  State<_UserFormScreen> createState() => _UserFormScreenState();
-}
-
-class _UserFormScreenState extends State<_UserFormScreen> {
-  final nCtrl = TextEditingController();
-  final eCtrl = TextEditingController();
-  final pCtrl = TextEditingController();
-  String role = 'Staff';
-  bool showPw = false, saving = false;
-  String err = '';
-
-  bool get isEdit => widget.user != null;
-
-  @override
-  void initState() {
-    super.initState();
-    if (isEdit) {
-      nCtrl.text = widget.user!.name;
-      eCtrl.text = widget.user!.email;
-      pCtrl.text = widget.user!.password;
-      role = widget.user!.role;
-    }
-  }
-
-  Future<void> _save() async {
-    if (nCtrl.text.trim().isEmpty) {
-      setState(() => err = 'Name is required.');
-      return;
-    }
-    if (!RegExp(r'^[\w.-]+@[\w.-]+\.\w+$').hasMatch(eCtrl.text.trim())) {
-      setState(() => err = 'Valid email is required.');
-      return;
-    }
-    if (pCtrl.text.length < 8) {
-      setState(() => err = 'Password must be at least 8 characters.');
-      return;
-    }
-    setState(() {
-      saving = true;
-      err = '';
-    });
-    try {
-      final u = AppUser(
-        id: isEdit ? widget.user!.id : '',
-        name: nCtrl.text.trim(),
-        email: eCtrl.text.trim(),
-        password: pCtrl.text,
-        role: role,
-      );
-      if (isEdit) {
-        await SupabaseService.updateUser(u);
-      } else {
-        await SupabaseService.addUser(u);
-      }
-      if (mounted) {
-        widget.onSaved();
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              isEdit
-                  ? 'User updated successfully!'
-                  : 'User added successfully!',
-            ),
-            backgroundColor: cGreen,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          err = e.toString();
-          saving = false;
-        });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: cSlate,
-    body: SafeArea(
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF4A1D96), cPurple],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Row(
-                    children: [
-                      Icon(
-                        Icons.arrow_back_ios_rounded,
-                        color: Colors.white70,
-                        size: 14,
-                      ),
-                      SizedBox(width: 4),
-                      Text(
-                        'Back',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
+                const SizedBox(width: 8),
                 Text(
-                  isEdit ? 'Edit User' : 'Add New User',
+                  'Week $week · ${fmtDateShort(weekStart)} – ${fmtDateShort(weekStart.add(const Duration(days: 6)))}',
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: cText,
                   ),
-                ),
-                Text(
-                  isEdit ? 'Update user details' : 'Create a new user account',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
               ],
             ),
-          ),
-          Expanded(
-            child: _bgGradient(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 12),
+            ...rows,
+            const Divider(height: 16, color: cBorder),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Week $week Total',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: cText,
+                  ),
+                ),
+                Row(
                   children: [
-                    const SizedBox(height: 8),
-                    raisedCard(
-                      radius: 14,
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const InputLabel('Full Name'),
-                            StyledInput(hint: 'Full name', ctrl: nCtrl),
-                            const InputLabel('Email Address'),
-                            StyledInput(
-                              hint: 'Email address',
-                              ctrl: eCtrl,
-                              keyboard: TextInputType.emailAddress,
-                            ),
-                            const InputLabel('Password'),
-                            StyledInput(
-                              hint: 'Min 8 characters',
-                              ctrl: pCtrl,
-                              obscure: !showPw,
-                              suffix: IconButton(
-                                icon: Icon(
-                                  showPw
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                  color: cMuted,
-                                  size: 20,
-                                ),
-                                onPressed: () =>
-                                    setState(() => showPw = !showPw),
-                              ),
-                            ),
-                            const InputLabel('Role'),
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 14),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: cBorder),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: cNavy.withOpacity(0.06),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: role,
-                                  isExpanded: true,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                  ),
-                                  items: ['Staff', 'Manager', 'Admin']
-                                      .map(
-                                        (r) => DropdownMenuItem(
-                                          value: r,
-                                          child: Row(
-                                            children: [
-                                              RoleBadge(r),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                r,
-                                                style: const TextStyle(
-                                                  fontSize: 14,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (v) => setState(() => role = v!),
-                                ),
-                              ),
-                            ),
-                            if (err.isNotEmpty) ErrorBox(err),
-                            saving
-                                ? const Center(
-                                    child: CircularProgressIndicator(
-                                      color: cPurple,
-                                    ),
-                                  )
-                                : PrimaryButton(
-                                    label: isEdit ? 'Update User' : 'Add User',
-                                    onTap: _save,
-                                    colors: [cPurple, const Color(0xFF4F46E5)],
-                                    shadowColor: const Color(0xFF3730A3),
-                                  ),
-                          ],
+                    if (isHigh)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: Icon(
+                          Icons.warning_amber_rounded,
+                          color: cOrange,
+                          size: 14,
                         ),
+                      ),
+                    Text(
+                      '${weekTotal.toStringAsFixed(1)} hrs',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: isHigh ? cOrange : cBlue,
                       ),
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-}
-
-// ─── MANAGER HOME ──────────────────────────────────────────
-class ManagerHome extends StatefulWidget {
-  final AppUser user;
-  final VoidCallback onLogout;
-  const ManagerHome({super.key, required this.user, required this.onLogout});
-  @override
-  State<ManagerHome> createState() => _ManagerHomeState();
-}
-
-class _ManagerHomeState extends State<ManagerHome> {
-  String? subScreen;
-  List<AppUser> users = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUsers();
+    );
   }
 
-  Future<void> _loadUsers() async {
-    try {
-      final u = await SupabaseService.getUsers();
-      if (mounted) setState(() => users = u);
-    } catch (_) {}
-  }
+  Widget _buildHistoryCard(Map<String, dynamic> ts) {
+    final start = DateTime.tryParse(ts['fortnight_start'] ?? '');
+    final end = DateTime.tryParse(ts['fortnight_end'] ?? '');
+    final status = ts['status'] ?? 'pending';
 
-  @override
-  Widget build(BuildContext context) {
-    if (subScreen == 'staff')
-      return _StaffMembersScreen(
-        users: users,
-        onBack: () => setState(() => subScreen = null),
-        onLogout: widget.onLogout,
-      );
-    if (subScreen == 'timesheets')
-      return _ManagerTimesheetsScreen(
-        manager: widget.user,
-        onBack: () => setState(() => subScreen = null),
-        onLogout: widget.onLogout,
-      );
-
-    final now = DateTime.now();
-    final fnStart = fortnightStart(now);
-    return Column(
-      children: [
-        AppHeader(onLogout: widget.onLogout),
-        Expanded(
-          child: _bgGradient(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: raisedCard(
+        radius: 12,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [cNavyMid, cNavy],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                  Expanded(
+                    child: Text(
+                      start != null && end != null
+                          ? '${fmtDateShort(start)} – ${fmtDate(end)}'
+                          : '—',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: cText,
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: cNavy.withOpacity(0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                        const BoxShadow(
-                          color: cNavy,
-                          blurRadius: 0,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
                     ),
+                  ),
+                  StatusBadge(status),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Dashboard',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 22,
-                          ),
+                        _SummaryRow(
+                          label: 'Week 1',
+                          value:
+                              '${(ts['week1_hours'] ?? 0).toStringAsFixed(1)} hrs',
+                          bold: false,
                         ),
-                        Text(
-                          'Auckland · Fortnight ${fmtDateShort(fnStart)} – ${fmtDate(fortnightEnd(fnStart))}',
-                          style: const TextStyle(
-                            color: Colors.white60,
-                            fontSize: 12,
-                          ),
+                        const SizedBox(height: 3),
+                        _SummaryRow(
+                          label: 'Week 2',
+                          value:
+                              '${(ts['week2_hours'] ?? 0).toStringAsFixed(1)} hrs',
+                          bold: false,
+                        ),
+                        const Divider(height: 12, color: cBorder),
+                        _SummaryRow(
+                          label: 'Total',
+                          value:
+                              '${(ts['total_hours'] ?? 0).toStringAsFixed(1)} hrs',
+                          bold: true,
+                          valueColor: cBlue,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Management',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: cNavyLight,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _ManagerTile(
-                    icon: Icons.people_alt_rounded,
-                    label: 'Staff Members',
-                    subtitle: 'View all staff profiles',
-                    gradient: [const Color(0xFF065F46), cGreen],
-                    shadowColor: const Color(0xFF064E3B),
-                    badge: '${users.where((u) => u.role == 'Staff').length}',
-                    onTap: () => setState(() => subScreen = 'staff'),
-                  ),
-                  const SizedBox(height: 12),
-                  _ManagerTile(
-                    icon: Icons.receipt_long_rounded,
-                    label: 'Time Sheets',
-                    subtitle: 'Review & approve fortnightly timesheets',
-                    gradient: [const Color(0xFF1E3A8A), cBlue],
-                    shadowColor: const Color(0xFF1E3A5F),
-                    badge: null,
-                    onTap: () => setState(() => subScreen = 'timesheets'),
-                  ),
-                  const SizedBox(height: 20),
-                  StatCard(
-                    icon: Icons.check_circle_rounded,
-                    label: 'Checked In Today',
-                    value: 0,
-                  ),
-                  const SizedBox(height: 10),
-                  StatCard(
-                    icon: Icons.pending_actions_rounded,
-                    label: 'Pending Approvals',
-                    value: 0,
-                  ),
                 ],
               ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ManagerTile extends StatelessWidget {
-  final IconData icon;
-  final String label, subtitle;
-  final List<Color> gradient;
-  final Color shadowColor;
-  final String? badge;
-  final VoidCallback onTap;
-  const _ManagerTile({
-    required this.icon,
-    required this.label,
-    required this.subtitle,
-    required this.gradient,
-    required this.shadowColor,
-    required this.badge,
-    required this.onTap,
-  });
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.last.withOpacity(0.45),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
-          ),
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 0,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white24),
-            ),
-            child: Icon(icon, color: Colors.white, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+              if (status == 'rejected' &&
+                  (ts['manager_comment'] ?? '').isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFDECEA),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline, color: cRed, size: 13),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Manager: ${ts['manager_comment']}',
+                          style: const TextStyle(fontSize: 11, color: cRed),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 3),
+              ],
+              if (status == 'approved' && ts['approved_at'] != null) ...[
+                const SizedBox(height: 6),
                 Text(
-                  subtitle,
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  'Approved ${_fmtDT(ts['approved_at'])}',
+                  style: const TextStyle(fontSize: 11, color: cGreenText),
                 ),
               ],
-            ),
+            ],
           ),
-          if (badge != null) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.25),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                badge!,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-          ],
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: Colors.white54,
-            size: 22,
-          ),
-        ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-// ─── STAFF MEMBERS SCREEN (Manager) ───────────────────────
-class _StaffMembersScreen extends StatelessWidget {
-  final List<AppUser> users;
-  final VoidCallback onBack, onLogout;
-  const _StaffMembersScreen({
-    required this.users,
-    required this.onBack,
-    required this.onLogout,
-  });
   @override
   Widget build(BuildContext context) {
-    final staff = users.where((u) => u.role == 'Staff').toList();
+    final w1 = _weekHours(1);
+    final w2 = _weekHours(2);
+    final total = w1 + w2;
+    final isHigh = total > 90;
+
     return Column(
       children: [
-        AppHeader(onLogout: onLogout),
+        AppHeader(onLogout: widget.onLogout),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF065F46), cGreen],
+              colors: [Color(0xFF1E3A8A), cBlue],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -2525,7 +2046,7 @@ class _StaffMembersScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GestureDetector(
-                onTap: onBack,
+                onTap: widget.onBack,
                 child: const Row(
                   children: [
                     Icon(
@@ -2546,108 +2067,742 @@ class _StaffMembersScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Staff Members',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 22,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'My Timesheet',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 22,
+                          ),
+                        ),
+                        Text(
+                          '${fmtDateShort(fnStart)} – ${fmtDate(fnEnd)}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (submission != null)
+                    StatusBadge(submission!['status'] ?? 'pending'),
+                ],
               ),
-              Text(
-                '${staff.length} staff registered',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _HeaderTab(
+                    label: 'Current',
+                    selected: !viewingHistory,
+                    onTap: () => setState(() => viewingHistory = false),
+                  ),
+                  const SizedBox(width: 8),
+                  _HeaderTab(
+                    label: 'History',
+                    selected: viewingHistory,
+                    onTap: () {
+                      setState(() => viewingHistory = true);
+                      if (history.isEmpty) {
+                        _loadHistory();
+                      }
+                    },
+                  ),
+                ],
               ),
             ],
           ),
         ),
         Expanded(
           child: _bgGradient(
-            child: staff.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No staff members yet.',
-                      style: TextStyle(color: cMuted, fontSize: 14),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: staff.length,
-                    itemBuilder: (_, i) {
-                      final u = staff[i];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: raisedCard(
-                          radius: 12,
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFF065F46), cGreen],
-                                    ),
-                                    borderRadius: BorderRadius.circular(22),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: cGreen.withOpacity(0.35),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      u.name[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                  ),
+            child: loading
+                ? const Center(child: CircularProgressIndicator(color: cBlue))
+                : err.isNotEmpty
+                    ? Center(
+                        child: Text(
+                          'Error: $err',
+                          style: const TextStyle(color: cRed),
+                        ),
+                      )
+                    : viewingHistory
+                        ? historyLoading
+                            ? const Center(
+                                child: CircularProgressIndicator(color: cBlue),
+                              )
+                            : RefreshIndicator(
+                                onRefresh: _loadHistory,
+                                color: cBlue,
+                                child: ListView(
+                                  padding: const EdgeInsets.all(16),
+                                  children: [
+                                    if (history.isEmpty)
+                                      const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(40),
+                                          child: Text(
+                                            'No past timesheets yet.',
+                                            style: TextStyle(
+                                              color: cMuted,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      ...history.map(_buildHistoryCard),
+                                  ],
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        u.name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 14,
-                                          color: cText,
+                              )
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            color: cBlue,
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                children: [
+                                  if (submission != null) ...[
+                                    _StatusBanner(submission: submission!),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  _buildWeekCard(1),
+                                  const SizedBox(height: 12),
+                                  _buildWeekCard(2),
+                                  const SizedBox(height: 12),
+                                  raisedCard(
+                                    radius: 12,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              const Text(
+                                                'Fortnight Grand Total',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 15,
+                                                  color: cNavyMid,
+                                                ),
+                                              ),
+                                              Row(
+                                                children: [
+                                                  if (isHigh)
+                                                    const Padding(
+                                                      padding: EdgeInsets.only(
+                                                        right: 6,
+                                                      ),
+                                                      child: Icon(
+                                                        Icons
+                                                            .warning_amber_rounded,
+                                                        color: cOrange,
+                                                        size: 16,
+                                                      ),
+                                                    ),
+                                                  Text(
+                                                    '${total.toStringAsFixed(1)} hrs',
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 16,
+                                                      color: isHigh
+                                                          ? cOrange
+                                                          : cBlue,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                          if (isHigh) ...[
+                                            const SizedBox(height: 8),
+                                            Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: cAmberLight,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: const Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.warning_amber_rounded,
+                                                    color: cAmber,
+                                                    size: 14,
+                                                  ),
+                                                  SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Hours significantly exceed standard 80 hrs/fortnight. Please verify with your manager.',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: cAmberText,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  if (!_isApproved)
+                                    GestureDetector(
+                                      onTap: _submit,
+                                      child: Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            colors: [Color(0xFF1E3A8A), cBlue],
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              _isSubmitted
+                                                  ? Icons.refresh_rounded
+                                                  : Icons.send_rounded,
+                                              color: Colors.white,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              _isSubmitted
+                                                  ? 'Re-submit Timesheet'
+                                                  : 'Submit to Manager',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      Text(
-                                        u.email,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: cMuted,
-                                        ),
+                                    )
+                                  else
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 14),
+                                      decoration: BoxDecoration(
+                                        color: cGreenLight,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: cGreenBorder),
                                       ),
-                                      const SizedBox(height: 3),
-                                      RoleBadge(u.role),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            Icons.lock_rounded,
+                                            color: cGreenText,
+                                            size: 16,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Approved & Locked',
+                                            style: TextStyle(
+                                              color: cGreenText,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  const SizedBox(height: 20),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
           ),
         ),
       ],
     );
   }
+}
+
+class _HeaderTab extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _HeaderTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? Colors.white : Colors.white24,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: selected ? cBlue : Colors.white70,
+            ),
+          ),
+        ),
+      );
+}
+
+class _StatusBanner extends StatelessWidget {
+  final Map<String, dynamic> submission;
+  const _StatusBanner({required this.submission});
+  @override
+  Widget build(BuildContext context) {
+    final status = submission['status'] ?? 'pending';
+    Color bg;
+    Color fg;
+    IconData icon;
+    String msg;
+    switch (status) {
+      case 'approved':
+        bg = cGreenLight;
+        fg = cGreenText;
+        icon = Icons.check_circle_rounded;
+        msg =
+            'Approved${submission['approved_at'] != null ? ' on ${_fmtDT(submission['approved_at'])}' : ''}';
+        break;
+      case 'rejected':
+        bg = const Color(0xFFFDECEA);
+        fg = cRed;
+        icon = Icons.cancel_rounded;
+        msg =
+            'Rejected by manager${(submission['manager_comment'] ?? '').isNotEmpty ? ': ${submission['manager_comment']}' : ''}';
+        break;
+      case 'review':
+        bg = cVioletLight;
+        fg = cVioletText;
+        icon = Icons.visibility_rounded;
+        msg = 'Under review by manager';
+        break;
+      default:
+        bg = cAmberLight;
+        fg = cAmberText;
+        icon = Icons.hourglass_empty_rounded;
+        msg = 'Submitted – awaiting manager approval';
+    }
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: fg.withOpacity(0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fg, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              msg,
+              style: TextStyle(
+                color: fg,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── SHIFT HISTORY ─────────────────────────────────────────
+class ShiftHistoryScreen extends StatefulWidget {
+  final AppUser user;
+  final VoidCallback onBack, onLogout;
+  const ShiftHistoryScreen({
+    super.key,
+    required this.user,
+    required this.onBack,
+    required this.onLogout,
+  });
+  @override
+  State<ShiftHistoryScreen> createState() => _ShiftHistoryScreenState();
+}
+
+class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
+  List<Map<String, dynamic>> records = [];
+  bool loading = true;
+  String err = '';
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await SupabaseService.getUserRecords(widget.user.email);
+      if (mounted)
+        setState(() {
+          records = r;
+          loading = false;
+        });
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          err = e.toString();
+          loading = false;
+        });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          AppHeader(onLogout: widget.onLogout),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF4A1D96), cPurple],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: widget.onBack,
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.arrow_back_ios_rounded,
+                        color: Colors.white70,
+                        size: 14,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Back',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'My Shift History',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                  ),
+                ),
+                const Text(
+                  'All your clock-in records',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _bgGradient(
+              child: loading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: cPurple))
+                  : err.isNotEmpty
+                      ? Center(
+                          child: Text(
+                            'Error: $err',
+                            style: const TextStyle(color: cRed),
+                          ),
+                        )
+                      : records.isEmpty
+                          ? const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.history_rounded,
+                                      color: cMuted, size: 48),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'No shift records yet.',
+                                    style: TextStyle(
+                                      color: cMuted,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : RefreshIndicator(
+                              onRefresh: _load,
+                              color: cPurple,
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: records.length,
+                                itemBuilder: (ctx, i) {
+                                  final d = records[i];
+                                  final isActive =
+                                      d['shift_status'] == 'active';
+                                  final photoUrl = d['photo_url'] as String?;
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    child: raisedCard(
+                                      radius: 14,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(16),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: isActive
+                                                        ? cGreenLight
+                                                        : cSlate,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            20),
+                                                    border: Border.all(
+                                                      color: isActive
+                                                          ? cGreenBorder
+                                                          : cBorder,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    isActive
+                                                        ? '● Active'
+                                                        : '✓ Completed',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: isActive
+                                                          ? cGreenText
+                                                          : cMuted,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  d['branch_name'] ?? '',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: cMuted,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.login_rounded,
+                                                  color: cGreen,
+                                                  size: 14,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  'In:  ${_fmtDT(d['clock_in_time'])}',
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: cText,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.logout_rounded,
+                                                  color: cRed,
+                                                  size: 14,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  'Out: ${d['clock_out_time'] != null ? _fmtDT(d['clock_out_time']) : 'Not clocked out yet'}',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color:
+                                                        d['clock_out_time'] !=
+                                                                null
+                                                            ? cText
+                                                            : cMuted,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            if (d['shift_hours'] != null) ...[
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.access_time_rounded,
+                                                    color: cBlue,
+                                                    size: 14,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    'Total: ${(d['shift_hours'] as num).toStringAsFixed(1)} hrs',
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      color: cBlue,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                            if (d['lat'] != null) ...[
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.gps_fixed,
+                                                    color: cMuted,
+                                                    size: 12,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    '${(d['lat'] as num).toStringAsFixed(5)}, ${(d['lng'] as num).toStringAsFixed(5)}',
+                                                    style: const TextStyle(
+                                                      fontSize: 10,
+                                                      color: cMuted,
+                                                      fontFamily: 'monospace',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                            if (photoUrl != null) ...[
+                                              const SizedBox(height: 10),
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: Image.network(
+                                                  photoUrl,
+                                                  height: 100,
+                                                  width: double.infinity,
+                                                  fit: BoxFit.cover,
+                                                  loadingBuilder:
+                                                      (ctx, child, prog) =>
+                                                          prog == null
+                                                              ? child
+                                                              : Container(
+                                                                  height: 100,
+                                                                  color: cSlate,
+                                                                  child:
+                                                                      const Center(
+                                                                    child:
+                                                                        CircularProgressIndicator(
+                                                                      color:
+                                                                          cPurple,
+                                                                      strokeWidth:
+                                                                          2,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                  errorBuilder: (_, __, ___) =>
+                                                      Container(
+                                                    height: 50,
+                                                    color: cSlate,
+                                                    child: const Center(
+                                                      child: Icon(
+                                                        Icons
+                                                            .broken_image_rounded,
+                                                        color: cMuted,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                            if (d['shift_notes'] != null &&
+                                                (d['shift_notes'] as String)
+                                                    .isNotEmpty) ...[
+                                              const SizedBox(height: 8),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(
+                                                  color: cSlate,
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Row(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.notes_rounded,
+                                                      color: cMuted,
+                                                      size: 13,
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Expanded(
+                                                      child: Text(
+                                                        d['shift_notes'],
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          color: cNavyMid,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+            ),
+          ),
+        ],
+      );
 }
 
 // ─── CLOCK IN SCREEN ───────────────────────────────────────
@@ -2706,16 +2861,16 @@ class _ClockInScreenState extends State<ClockInScreen> {
   }
 
   void _onBranchSelected(Branch? b) => setState(() {
-    selectedBranch = b;
-    gpsState = GpsState.idle;
-    detectedBranch = null;
-    capturedLat = null;
-    capturedLng = null;
-    gpsTimestamp = null;
-    gpsError = '';
-    capturedPhoto = null;
-    clockedIn = false;
-  });
+        selectedBranch = b;
+        gpsState = GpsState.idle;
+        detectedBranch = null;
+        capturedLat = null;
+        capturedLng = null;
+        gpsTimestamp = null;
+        gpsError = '';
+        capturedPhoto = null;
+        clockedIn = false;
+      });
   Future<void> _takePhoto() async {
     try {
       final XFile? x = await _picker.pickImage(
@@ -2803,9 +2958,7 @@ class _ClockInScreenState extends State<ClockInScreen> {
           capturedLat = p.latitude;
           capturedLng = p.longitude;
           gpsError =
-              'You are ${(dist / 1000).toStringAsFixed(2)} km from "${selectedBranch!.name}".\n\n'
-              'Clock-in requires you to be within 1000 m of the selected branch.\n\n'
-              'Please ensure you are physically at the branch or contact your manager.';
+              'You are ${(dist / 1000).toStringAsFixed(2)} km from "${selectedBranch!.name}".\n\nClock-in requires you to be within 1000 m of the selected branch.\n\nPlease ensure you are physically at the branch or contact your manager.';
         });
       }
     } on TimeoutException {
@@ -2870,512 +3023,535 @@ class _ClockInScreenState extends State<ClockInScreen> {
 
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      AppHeader(onLogout: widget.onLogout),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF065F46), cGreen],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            GestureDetector(
-              onTap: widget.onBack,
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.arrow_back_ios_rounded,
-                    color: Colors.white70,
-                    size: 14,
-                  ),
-                  SizedBox(width: 4),
-                  Text(
-                    'Back',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+        children: [
+          AppHeader(onLogout: widget.onLogout),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF065F46), cGreen],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '${_greeting()}, ${widget.user.name.split(' ').first} 👋',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 20,
-              ),
-            ),
-            const Text(
-              'Mode Rentals · New Zealand',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-          ],
-        ),
-      ),
-      Expanded(
-        child: _bgGradient(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                raisedCard(
-                  radius: 16,
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      children: [
-                        Text(
-                          _timeStr(),
-                          style: const TextStyle(
-                            fontSize: 42,
-                            fontWeight: FontWeight.w900,
-                            color: cText,
-                            letterSpacing: 1,
-                          ),
+                GestureDetector(
+                  onTap: widget.onBack,
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.arrow_back_ios_rounded,
+                        color: Colors.white70,
+                        size: 14,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Back',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _dateStr(),
-                          style: const TextStyle(color: cMuted, fontSize: 13),
-                        ),
-                        const SizedBox(height: 20),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${_greeting()}, ${widget.user.name.split(' ').first} 👋',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                  ),
+                ),
+                const Text(
+                  'Mode Rentals · New Zealand',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _bgGradient(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    raisedCard(
+                      radius: 16,
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
                           children: [
-                            const Row(
+                            Text(
+                              _timeStr(),
+                              style: const TextStyle(
+                                fontSize: 42,
+                                fontWeight: FontWeight.w900,
+                                color: cText,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _dateStr(),
+                              style:
+                                  const TextStyle(color: cMuted, fontSize: 13),
+                            ),
+                            const SizedBox(height: 20),
+                            // Branch selector
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  Icons.store_rounded,
-                                  color: cNavyMid,
-                                  size: 15,
-                                ),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Select your branch',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
-                                    color: cNavyMid,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: cSlate,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: selectedBranch != null
-                                      ? cGreenBorder
-                                      : cBorder,
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<Branch>(
-                                  value: selectedBranch,
-                                  isExpanded: true,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                  ),
-                                  hint: const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.location_on_outlined,
-                                        color: cMuted,
-                                        size: 16,
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        '— Choose authorised location —',
-                                        style: TextStyle(
-                                          color: cMuted,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  items: kBranches
-                                      .map(
-                                        (b) => DropdownMenuItem<Branch>(
-                                          value: b,
-                                          child: Row(
-                                            children: [
-                                              Container(
-                                                width: 8,
-                                                height: 8,
-                                                decoration: BoxDecoration(
-                                                  color: cGreen,
-                                                  borderRadius:
-                                                      BorderRadius.circular(4),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Text(
-                                                      b.name,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        fontSize: 13,
-                                                        color: cText,
-                                                      ),
-                                                    ),
-                                                    Text(
-                                                      b.address,
-                                                      style: const TextStyle(
-                                                        fontSize: 10,
-                                                        color: cMuted,
-                                                      ),
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: _onBranchSelected,
-                                ),
-                              ),
-                            ),
-                            if (selectedBranch != null) ...[
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.check_circle_rounded,
-                                    color: cGreen,
-                                    size: 13,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Expanded(
-                                    child: Text(
-                                      selectedBranch!.address,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: cGreenText,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _GpsPanel(
-                          gpsState: gpsState,
-                          selectedBranch: selectedBranch,
-                          detectedBranch: detectedBranch,
-                          gpsError: gpsError,
-                          capturedLat: capturedLat,
-                          capturedLng: capturedLng,
-                          gpsTimestamp: gpsTimestamp,
-                          onVerify: _onVerifyTapped,
-                          verifyEnabled: selectedBranch != null,
-                        ),
-                        const SizedBox(height: 14),
-                        if (gpsState == GpsState.granted) ...[
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(
-                                    Icons.camera_alt_rounded,
-                                    color: cNavyMid,
-                                    size: 15,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Clock-in photo',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13,
+                                const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.store_rounded,
                                       color: cNavyMid,
+                                      size: 15,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Select your branch',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: cNavyMid,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: cSlate,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: selectedBranch != null
+                                          ? cGreenBorder
+                                          : cBorder,
+                                      width: 1.5,
                                     ),
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'A photo is required. Camera only — gallery upload not allowed.',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: cMuted,
-                                  height: 1.4,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              capturedPhoto != null
-                                  ? Stack(
-                                      children: [
-                                        ClipRRect(
-                                          borderRadius: BorderRadius.circular(
-                                            12,
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<Branch>(
+                                      value: selectedBranch,
+                                      isExpanded: true,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                      ),
+                                      hint: const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.location_on_outlined,
+                                            color: cMuted,
+                                            size: 16,
                                           ),
-                                          child: Image.file(
-                                            capturedPhoto!,
-                                            width: double.infinity,
-                                            height: 160,
-                                            fit: BoxFit.cover,
+                                          SizedBox(width: 8),
+                                          Text(
+                                            '— Choose authorised location —',
+                                            style: TextStyle(
+                                              color: cMuted,
+                                              fontSize: 13,
+                                            ),
                                           ),
-                                        ),
-                                        Positioned(
-                                          top: 8,
-                                          right: 8,
-                                          child: GestureDetector(
-                                            onTap: _takePhoto,
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 6,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: cNavy.withOpacity(0.75),
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                              ),
-                                              child: const Row(
-                                                mainAxisSize: MainAxisSize.min,
+                                        ],
+                                      ),
+                                      items: kBranches
+                                          .map(
+                                            (b) => DropdownMenuItem<Branch>(
+                                              value: b,
+                                              child: Row(
                                                 children: [
-                                                  Icon(
-                                                    Icons.refresh_rounded,
-                                                    color: Colors.white,
-                                                    size: 13,
+                                                  Container(
+                                                    width: 8,
+                                                    height: 8,
+                                                    decoration: BoxDecoration(
+                                                      color: cGreen,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              4),
+                                                    ),
                                                   ),
-                                                  SizedBox(width: 4),
-                                                  Text(
-                                                    'Retake',
-                                                    style: TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 11,
-                                                      fontWeight:
-                                                          FontWeight.w600,
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Text(
+                                                          b.name,
+                                                          style:
+                                                              const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                            fontSize: 13,
+                                                            color: cText,
+                                                          ),
+                                                        ),
+                                                        Text(
+                                                          b.address,
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 10,
+                                                            color: cMuted,
+                                                          ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ],
                                                     ),
                                                   ),
                                                 ],
                                               ),
                                             ),
+                                          )
+                                          .toList(),
+                                      onChanged: _onBranchSelected,
+                                    ),
+                                  ),
+                                ),
+                                if (selectedBranch != null) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle_rounded,
+                                        color: cGreen,
+                                        size: 13,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Expanded(
+                                        child: Text(
+                                          selectedBranch!.address,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: cGreenText,
                                           ),
                                         ),
-                                        Positioned(
-                                          bottom: 8,
-                                          left: 8,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: cGreen.withOpacity(0.85),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _GpsPanel(
+                              gpsState: gpsState,
+                              selectedBranch: selectedBranch,
+                              detectedBranch: detectedBranch,
+                              gpsError: gpsError,
+                              capturedLat: capturedLat,
+                              capturedLng: capturedLng,
+                              gpsTimestamp: gpsTimestamp,
+                              onVerify: _onVerifyTapped,
+                              verifyEnabled: selectedBranch != null,
+                            ),
+                            const SizedBox(height: 14),
+                            if (gpsState == GpsState.granted) ...[
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Row(
+                                    children: [
+                                      Icon(
+                                        Icons.camera_alt_rounded,
+                                        color: cNavyMid,
+                                        size: 15,
+                                      ),
+                                      SizedBox(width: 6),
+                                      Text(
+                                        'Clock-in photo',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                          color: cNavyMid,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'A photo is required. Camera only — gallery upload not allowed.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: cMuted,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  capturedPhoto != null
+                                      ? Stack(
+                                          children: [
+                                            ClipRRect(
                                               borderRadius:
-                                                  BorderRadius.circular(8),
+                                                  BorderRadius.circular(
+                                                12,
+                                              ),
+                                              child: Image.file(
+                                                capturedPhoto!,
+                                                width: double.infinity,
+                                                height: 160,
+                                                fit: BoxFit.cover,
+                                              ),
                                             ),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  Icons.check_circle_rounded,
-                                                  color: Colors.white,
-                                                  size: 12,
+                                            Positioned(
+                                              top: 8,
+                                              right: 8,
+                                              child: GestureDetector(
+                                                onTap: _takePhoto,
+                                                child: Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        cNavy.withOpacity(0.75),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            20),
+                                                  ),
+                                                  child: const Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.refresh_rounded,
+                                                        color: Colors.white,
+                                                        size: 13,
+                                                      ),
+                                                      SizedBox(width: 4),
+                                                      Text(
+                                                        'Retake',
+                                                        style: TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
-                                                SizedBox(width: 4),
-                                                Text(
-                                                  'Photo captured ✓',
-                                                  style: TextStyle(
+                                              ),
+                                            ),
+                                            Positioned(
+                                              bottom: 8,
+                                              left: 8,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color:
+                                                      cGreen.withOpacity(0.85),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: const Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons
+                                                          .check_circle_rounded,
+                                                      color: Colors.white,
+                                                      size: 12,
+                                                    ),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      'Photo captured ✓',
+                                                      style: TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : GestureDetector(
+                                          onTap: _takePhoto,
+                                          child: Container(
+                                            width: double.infinity,
+                                            height: 110,
+                                            decoration: BoxDecoration(
+                                              color: cSlate,
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                12,
+                                              ),
+                                              border: Border.all(
+                                                color: cBorder,
+                                                width: 1.5,
+                                              ),
+                                            ),
+                                            child: Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Container(
+                                                  width: 48,
+                                                  height: 48,
+                                                  decoration: BoxDecoration(
+                                                    gradient:
+                                                        const LinearGradient(
+                                                      colors: [
+                                                        cNavyMid,
+                                                        cNavyLight,
+                                                      ],
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            24),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color:
+                                                            cNavy.withOpacity(
+                                                          0.3,
+                                                        ),
+                                                        blurRadius: 8,
+                                                        offset:
+                                                            const Offset(0, 3),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons.camera_alt_rounded,
                                                     color: Colors.white,
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w600,
+                                                    size: 22,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  'Tap to take photo',
+                                                  style: TextStyle(
+                                                    color: cNavyMid,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                const Text(
+                                                  'Camera only · no gallery upload',
+                                                  style: TextStyle(
+                                                    color: cMuted,
+                                                    fontSize: 10,
                                                   ),
                                                 ),
                                               ],
                                             ),
                                           ),
                                         ),
-                                      ],
-                                    )
-                                  : GestureDetector(
-                                      onTap: _takePhoto,
-                                      child: Container(
-                                        width: double.infinity,
-                                        height: 110,
-                                        decoration: BoxDecoration(
-                                          color: cSlate,
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                          border: Border.all(
-                                            color: cBorder,
-                                            width: 1.5,
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                            saving
+                                ? Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: cGreenLight,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: cGreenBorder),
+                                    ),
+                                    child: const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.5,
+                                            color: cGreen,
                                           ),
                                         ),
-                                        child: Column(
+                                        SizedBox(width: 10),
+                                        Text(
+                                          'Uploading photo & saving…',
+                                          style: TextStyle(
+                                            color: cGreenText,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : clockedIn
+                                    ? Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: cGreenLight,
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border:
+                                              Border.all(color: cGreenBorder),
+                                        ),
+                                        child: const Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
                                           children: [
-                                            Container(
-                                              width: 48,
-                                              height: 48,
-                                              decoration: BoxDecoration(
-                                                gradient: const LinearGradient(
-                                                  colors: [
-                                                    cNavyMid,
-                                                    cNavyLight,
-                                                  ],
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(24),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: cNavy.withOpacity(
-                                                      0.3,
-                                                    ),
-                                                    blurRadius: 8,
-                                                    offset: const Offset(0, 3),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: const Icon(
-                                                Icons.camera_alt_rounded,
-                                                color: Colors.white,
-                                                size: 22,
-                                              ),
+                                            Icon(
+                                              Icons.check_circle_rounded,
+                                              color: cGreen,
+                                              size: 20,
                                             ),
-                                            const SizedBox(height: 8),
-                                            const Text(
-                                              'Tap to take photo',
+                                            SizedBox(width: 8),
+                                            Text(
+                                              'Clocked In & Saved ✓',
                                               style: TextStyle(
-                                                color: cNavyMid,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            const Text(
-                                              'Camera only · no gallery upload',
-                                              style: TextStyle(
-                                                color: cMuted,
-                                                fontSize: 10,
+                                                color: cGreenText,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 15,
                                               ),
                                             ),
                                           ],
                                         ),
+                                      )
+                                    : _ClockInButton(
+                                        gpsState: gpsState,
+                                        photoTaken: capturedPhoto != null,
+                                        clockedIn: clockedIn,
+                                        branchSelected: selectedBranch != null,
+                                        onTap: _confirmClockIn,
                                       ),
-                                    ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-                        saving
-                            ? Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: cGreenLight,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: cGreenBorder),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                        color: cGreen,
-                                      ),
-                                    ),
-                                    SizedBox(width: 10),
-                                    Text(
-                                      'Uploading photo & saving…',
-                                      style: TextStyle(
-                                        color: cGreenText,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : clockedIn
-                            ? Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: cGreenLight,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: cGreenBorder),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle_rounded,
-                                      color: cGreen,
-                                      size: 20,
-                                    ),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Clocked In & Saved ✓',
-                                      style: TextStyle(
-                                        color: cGreenText,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : _ClockInButton(
-                                gpsState: gpsState,
-                                photoTaken: capturedPhoto != null,
-                                clockedIn: clockedIn,
-                                branchSelected: selectedBranch != null,
-                                onTap: _confirmClockIn,
-                              ),
-                      ],
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 20),
+                  ],
                 ),
-                const SizedBox(height: 20),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
-    ],
-  );
+        ],
+      );
 }
 
-// ─── GPS Panel ─────────────────────────────────────────────
 class _GpsPanel extends StatelessWidget {
   final GpsState gpsState;
   final Branch? selectedBranch, detectedBranch;
@@ -3680,7 +3856,6 @@ class _GpsPanel extends StatelessWidget {
   }
 }
 
-// ─── Clock In Button ───────────────────────────────────────
 class _ClockInButton extends StatelessWidget {
   final GpsState gpsState;
   final bool photoTaken, clockedIn, branchSelected;
@@ -3698,10 +3873,10 @@ class _ClockInButton extends StatelessWidget {
     final label = !branchSelected
         ? 'Select a Branch First'
         : gpsState != GpsState.granted
-        ? 'Verify Location First'
-        : !photoTaken
-        ? 'Take Photo to Enable Clock-In'
-        : 'Clock In';
+            ? 'Verify Location First'
+            : !photoTaken
+                ? 'Take Photo to Enable Clock-In'
+                : 'Clock In';
     return Opacity(
       opacity: _enabled ? 1.0 : 0.45,
       child: GestureDetector(
@@ -3742,7 +3917,7 @@ class _ClockInButton extends StatelessWidget {
   }
 }
 
-// ─── CLOCK OUT SCREEN ──────────────────────────────────────
+// ─── CLOCK OUT ─────────────────────────────────────────────
 class ClockOutScreen extends StatefulWidget {
   final AppUser user;
   final ClockInRecord? clockInRecord;
@@ -3773,7 +3948,7 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
     if (widget.clockInRecord == null) return 0;
     final diff =
         DateTime.now().difference(widget.clockInRecord!.timestamp).inMinutes -
-        30;
+            30;
     return (diff.clamp(0, 9999) / 60);
   }
 
@@ -3804,700 +3979,414 @@ class _ClockOutScreenState extends State<ClockOutScreen> {
 
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      AppHeader(onLogout: widget.onLogout),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF7F1D1D), cRedDark],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            GestureDetector(
-              onTap: widget.onBack,
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.arrow_back_ios_rounded,
-                    color: Colors.white70,
-                    size: 14,
-                  ),
-                  SizedBox(width: 4),
-                  Text(
-                    'Back',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+        children: [
+          AppHeader(onLogout: widget.onLogout),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF7F1D1D), cRedDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Clock Out',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 22,
-              ),
-            ),
-            const Text(
-              'Confirm your shift end',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-          ],
-        ),
-      ),
-      Expanded(
-        child: _bgGradient(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (confirmed) ...[
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: cGreenLight,
-                      border: Border.all(color: cGreenBorder),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          color: cGreen,
-                          size: 52,
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Clocked Out!',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: cGreenText,
-                            fontSize: 18,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Shift total: ${_shiftHours().toStringAsFixed(1)} hrs',
-                          style: const TextStyle(
-                            color: cGreenText,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Saved to Supabase ✓',
-                          style: TextStyle(color: cGreenText, fontSize: 12),
-                        ),
-                        const SizedBox(height: 16),
-                        PrimaryButton(
-                          label: 'Back to Home',
-                          onTap: widget.onClockedOut,
-                          colors: [cGreen, const Color(0xFF15803D)],
-                          shadowColor: cGreenDark,
-                        ),
-                      ],
-                    ),
-                  ),
-                ] else ...[
-                  raisedCard(
-                    radius: 16,
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Today's shift",
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                              color: cText,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          _SummaryRow(
-                            label: 'Clocked in',
-                            value: _fmt(widget.clockInRecord?.timestamp),
-                            bold: false,
-                          ),
-                          const SizedBox(height: 8),
-                          _SummaryRow(
-                            label: 'Clocking out',
-                            value: _fmt(DateTime.now()),
-                            bold: false,
-                          ),
-                          const SizedBox(height: 8),
-                          _SummaryRow(
-                            label: 'Break deducted',
-                            value: '30 min',
-                            bold: false,
-                          ),
-                          const Divider(height: 20, color: cBorder),
-                          _SummaryRow(
-                            label: 'Shift total',
-                            value: '${_shiftHours().toStringAsFixed(1)} hrs',
-                            bold: true,
-                            valueColor: cBlue,
-                          ),
-                        ],
+                GestureDetector(
+                  onTap: widget.onBack,
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.arrow_back_ios_rounded,
+                        color: Colors.white70,
+                        size: 14,
                       ),
-                    ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Back',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  raisedCard(
-                    radius: 12,
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.location_on_rounded,
-                                color: cGreen,
-                                size: 16,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Clock Out',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                  ),
+                ),
+                const Text(
+                  'Confirm your shift end',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _bgGradient(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    if (confirmed) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: cGreenLight,
+                          border: Border.all(color: cGreenBorder),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              color: cGreen,
+                              size: 52,
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Clocked Out!',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: cGreenText,
+                                fontSize: 18,
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                widget.clockInRecord?.branch.name ?? 'Unknown',
-                                style: const TextStyle(
-                                  color: cGreenText,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              const Spacer(),
-                              const Text(
-                                'GPS verified ✓',
-                                style: TextStyle(color: cGreen, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                          if (widget.clockInRecord != null) ...[
+                            ),
                             const SizedBox(height: 6),
                             Text(
-                              '${widget.clockInRecord!.lat.toStringAsFixed(5)}, ${widget.clockInRecord!.lng.toStringAsFixed(5)}',
+                              'Shift total: ${_shiftHours().toStringAsFixed(1)} hrs',
                               style: const TextStyle(
-                                fontSize: 10,
-                                color: cMuted,
-                                fontFamily: 'monospace',
+                                color: cGreenText,
+                                fontSize: 14,
                               ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Saved to Supabase ✓',
+                              style: TextStyle(color: cGreenText, fontSize: 12),
+                            ),
+                            const SizedBox(height: 16),
+                            PrimaryButton(
+                              label: 'Back to Home',
+                              onTap: widget.onClockedOut,
+                              colors: [cGreen, const Color(0xFF15803D)],
+                              shadowColor: cGreenDark,
                             ),
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  raisedCard(
-                    radius: 12,
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Add a note (optional)',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                              color: cText,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: noteCtrl,
-                            maxLines: 3,
-                            style: const TextStyle(fontSize: 13, color: cText),
-                            decoration: InputDecoration(
-                              hintText:
-                                  'e.g. Completed vehicle drop-off at 3pm',
-                              hintStyle: const TextStyle(
-                                color: cMuted,
-                                fontSize: 12,
-                              ),
-                              filled: true,
-                              fillColor: cSlate,
-                              contentPadding: const EdgeInsets.all(12),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: cBorder),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: cBorder),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(
-                                  color: cRed,
-                                  width: 1.5,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  saving
-                      ? Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: cSlate,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: cBorder),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                    ] else ...[
+                      raisedCard(
+                        radius: 16,
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: cGreen,
+                              const Text(
+                                "Today's shift",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                  color: cText,
                                 ),
                               ),
-                              SizedBox(width: 10),
-                              Text(
-                                'Saving to Supabase…',
+                              const SizedBox(height: 14),
+                              _SummaryRow(
+                                label: 'Clocked in',
+                                value: _fmt(widget.clockInRecord?.timestamp),
+                                bold: false,
+                              ),
+                              const SizedBox(height: 8),
+                              _SummaryRow(
+                                label: 'Clocking out',
+                                value: _fmt(DateTime.now()),
+                                bold: false,
+                              ),
+                              const SizedBox(height: 8),
+                              _SummaryRow(
+                                label: 'Break deducted',
+                                value: '30 min',
+                                bold: false,
+                              ),
+                              const Divider(height: 20, color: cBorder),
+                              _SummaryRow(
+                                label: 'Shift total',
+                                value:
+                                    '${_shiftHours().toStringAsFixed(1)} hrs',
+                                bold: true,
+                                valueColor: cBlue,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      raisedCard(
+                        radius: 12,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_on_rounded,
+                                    color: cGreen,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    widget.clockInRecord?.branch.name ??
+                                        'Unknown',
+                                    style: const TextStyle(
+                                      color: cGreenText,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const Text(
+                                    'GPS verified ✓',
+                                    style:
+                                        TextStyle(color: cGreen, fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                              if (widget.clockInRecord != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  '${widget.clockInRecord!.lat.toStringAsFixed(5)}, ${widget.clockInRecord!.lng.toStringAsFixed(5)}',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: cMuted,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      raisedCard(
+                        radius: 12,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Add a note (optional)',
                                 style: TextStyle(
-                                  color: cMuted,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
                                   fontSize: 14,
+                                  color: cText,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: noteCtrl,
+                                maxLines: 3,
+                                style:
+                                    const TextStyle(fontSize: 13, color: cText),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      'e.g. Completed vehicle drop-off at 3pm',
+                                  hintStyle: const TextStyle(
+                                    color: cMuted,
+                                    fontSize: 12,
+                                  ),
+                                  filled: true,
+                                  fillColor: cSlate,
+                                  contentPadding: const EdgeInsets.all(12),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide:
+                                        const BorderSide(color: cBorder),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide:
+                                        const BorderSide(color: cBorder),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(
+                                      color: cRed,
+                                      width: 1.5,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                        )
-                      : GestureDetector(
-                          onTap: _confirmOut,
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF7F1D1D), cRedDark],
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: cRed.withOpacity(0.45),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                                const BoxShadow(
-                                  color: Color(0xFF450A0A),
-                                  blurRadius: 0,
-                                  offset: Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                            child: const Text(
-                              'Confirm Clock Out',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
                         ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-// ─── FORTNIGHTLY TIMESHEET ─────────────────────────────────
-class FortnightlyTimesheetScreen extends StatefulWidget {
-  final AppUser user;
-  final VoidCallback onBack, onLogout;
-  const FortnightlyTimesheetScreen({
-    super.key,
-    required this.user,
-    required this.onBack,
-    required this.onLogout,
-  });
-  @override
-  State<FortnightlyTimesheetScreen> createState() =>
-      _FortnightlyTimesheetScreenState();
-}
-
-class _FortnightlyTimesheetScreenState
-    extends State<FortnightlyTimesheetScreen> {
-  bool loading = true, viewingHistory = false;
-  List<Map<String, dynamic>> shiftRecords = [];
-  Map<String, dynamic>? submission;
-  List<Map<String, dynamic>> history = [];
-  bool historyLoading = false;
-  String err = '';
-  late DateTime fnStart, fnEnd;
-
-  @override
-  void initState() {
-    super.initState();
-    fnStart = fortnightStart(DateTime.now());
-    fnEnd = fortnightEnd(fnStart);
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      loading = true;
-      err = '';
-    });
-    try {
-      final records = await SupabaseService.getUserRecordsInRange(
-        widget.user.email,
-        fnStart,
-        fnEnd,
-      );
-      final sub = await SupabaseService.getTimesheetStatus(
-        widget.user.email,
-        fnStart,
-      );
-      setState(() {
-        shiftRecords = records;
-        submission = sub;
-        loading = false;
-      });
-    } catch (e) {
-      setState(() {
-        err = e.toString();
-        loading = false;
-      });
-    }
-  }
-
-  Future<void> _loadHistory() async {
-    setState(() => historyLoading = true);
-    try {
-      final h = await SupabaseService.getAllTimesheetHistory(widget.user.email);
-      setState(() {
-        history = h;
-        historyLoading = false;
-      });
-    } catch (_) {
-      setState(() => historyLoading = false);
-    }
-  }
-
-  Map<String, double> _dailyHours() {
-    final Map<String, double> daily = {};
-    for (final r in shiftRecords) {
-      if (r['shift_hours'] == null) continue;
-      final dt = DateTime.tryParse(r['clock_in_time'] ?? '')?.toLocal();
-      if (dt == null) continue;
-      final key =
-          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-      daily[key] = (daily[key] ?? 0) + (r['shift_hours'] as num).toDouble();
-    }
-    return daily;
-  }
-
-  double _weekHours(int week) {
-    final daily = _dailyHours();
-    double total = 0;
-    final weekStart = week == 1
-        ? fnStart
-        : fnStart.add(const Duration(days: 7));
-    for (int i = 0; i < 7; i++) {
-      final d = weekStart.add(Duration(days: i));
-      final key =
-          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-      total += daily[key] ?? 0;
-    }
-    return total;
-  }
-
-  bool get _isApproved => submission?['status'] == 'approved';
-  bool get _isSubmitted => submission != null;
-
-  Future<void> _submit() async {
-    final w1 = _weekHours(1), w2 = _weekHours(2), total = w1 + w2;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Submit Timesheet',
-          style: TextStyle(fontWeight: FontWeight.w800, color: cNavyMid),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Submit your fortnightly timesheet to your manager for review?',
-              style: TextStyle(color: cNavyLight, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cSlate,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                children: [
-                  _SummaryRow(
-                    label: 'Week 1',
-                    value: '${w1.toStringAsFixed(1)} hrs',
-                    bold: false,
-                  ),
-                  const SizedBox(height: 4),
-                  _SummaryRow(
-                    label: 'Week 2',
-                    value: '${w2.toStringAsFixed(1)} hrs',
-                    bold: false,
-                  ),
-                  const Divider(height: 16, color: cBorder),
-                  _SummaryRow(
-                    label: 'Total',
-                    value: '${total.toStringAsFixed(1)} hrs',
-                    bold: true,
-                    valueColor: cBlue,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: cBlue,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text(
-              'Submit',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    try {
-      await SupabaseService.submitTimesheet(
-        userEmail: widget.user.email,
-        userName: widget.user.name,
-        branchName: shiftRecords.isNotEmpty
-            ? shiftRecords.first['branch_name'] ?? ''
-            : '',
-        fnStart: fnStart,
-        fnEnd: fnEnd,
-        week1: w1,
-        week2: w2,
-        total: total,
-      );
-      if (mounted) {
-        _load();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Timesheet submitted successfully!'),
-            backgroundColor: cGreen,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: cRed),
-        );
-    }
-  }
-
-  Widget _buildWeekCard(int week) {
-    final daily = _dailyHours();
-    final weekStart = week == 1
-        ? fnStart
-        : fnStart.add(const Duration(days: 7));
-    double weekTotal = 0;
-    final rows = <Widget>[];
-    for (int i = 0; i < 7; i++) {
-      final d = weekStart.add(Duration(days: i));
-      final key =
-          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-      final hrs = daily[key] ?? 0;
-      weekTotal += hrs;
-      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      rows.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 36,
-                child: Text(
-                  dayNames[i],
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: cMuted,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              Text(
-                fmtDateShort(d),
-                style: const TextStyle(fontSize: 12, color: cMuted),
-              ),
-              const Spacer(),
-              hrs > 0
-                  ? Text(
-                      '${hrs.toStringAsFixed(1)} hrs',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: hrs > 10 ? cOrange : cText,
                       ),
-                    )
-                  : const Text(
-                      '—',
-                      style: TextStyle(fontSize: 12, color: cBorder),
-                    ),
-            ],
-          ),
-        ),
-      );
-    }
-    return raisedCard(
-      radius: 14,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: cBlue,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Week $week · ${fmtDateShort(weekStart)} – ${fmtDateShort(weekStart.add(const Duration(days: 6)))}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: cText,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...rows,
-            const Divider(height: 16, color: cBorder),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Week $week Total',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: cText,
-                  ),
-                ),
-                Text(
-                  '${weekTotal.toStringAsFixed(1)} hrs',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    color: weekTotal > 45 ? cOrange : cBlue,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final w1 = _weekHours(1), w2 = _weekHours(2), total = w1 + w2;
-    return Column(
-      children: [
-        AppHeader(onLogout: widget.onLogout),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF1E3A8A), cBlue],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              GestureDetector(
-                onTap: widget.onBack,
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.arrow_back_ios_rounded,
-                      color: Colors.white70,
-                      size: 14,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'Back',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                      const SizedBox(height: 20),
+                      saving
+                          ? Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(
+                                color: cSlate,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: cBorder),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: cGreen,
+                                    ),
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'Saving to Supabase…',
+                                    style: TextStyle(
+                                      color: cMuted,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : GestureDetector(
+                              onTap: _confirmOut,
+                              child: Container(
+                                width: double.infinity,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 15),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF7F1D1D), cRedDark],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: cRed.withOpacity(0.45),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                    const BoxShadow(
+                                      color: Color(0xFF450A0A),
+                                      blurRadius: 0,
+                                      offset: Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: const Text(
+                                  'Confirm Clock Out',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Row(
+            ),
+          ),
+        ],
+      );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── MANAGER HOME ──────────────────────────────────════════
+// ═══════════════════════════════════════════════════════════
+class ManagerHome extends StatefulWidget {
+  final AppUser user;
+  final List<AppUser> users;
+  final VoidCallback onLogout;
+  const ManagerHome({
+    super.key,
+    required this.user,
+    required this.users,
+    required this.onLogout,
+  });
+  @override
+  State<ManagerHome> createState() => _ManagerHomeState();
+}
+
+class _ManagerHomeState extends State<ManagerHome> {
+  String? subScreen;
+  @override
+  Widget build(BuildContext context) {
+    if (subScreen == 'staff')
+      return _StaffMembersScreen(
+        users: widget.users,
+        onBack: () => setState(() => subScreen = null),
+        onLogout: widget.onLogout,
+      );
+    if (subScreen == 'timesheets')
+      return _ManagerTimesheetsScreen(
+        manager: widget.user,
+        onBack: () => setState(() => subScreen = null),
+        onLogout: widget.onLogout,
+      );
+
+    final now = DateTime.now();
+    final fnStart = fortnightStart(now);
+    return Column(
+      children: [
+        AppHeader(onLogout: widget.onLogout),
+        Expanded(
+          child: _bgGradient(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
+                  // Dashboard header card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [cNavyMid, cNavy],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: cNavy.withOpacity(0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                        const BoxShadow(
+                          color: cNavy,
+                          blurRadius: 0,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'My Timesheet',
+                          'Dashboard',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,
@@ -4505,425 +4394,195 @@ class _FortnightlyTimesheetScreenState
                           ),
                         ),
                         Text(
-                          '${fmtDateShort(fnStart)} – ${fmtDate(fnEnd)}',
+                          'Auckland · Fortnight ${fmtDateShort(fnStart)} – ${fmtDate(fortnightEnd(fnStart))}',
                           style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
+                            color: Colors.white60,
+                            fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  if (submission != null)
-                    StatusBadge(submission!['status'] ?? 'pending'),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  _HeaderTab(
-                    label: 'Current',
-                    selected: !viewingHistory,
-                    onTap: () => setState(() => viewingHistory = false),
-                  ),
-                  const SizedBox(width: 8),
-                  _HeaderTab(
-                    label: 'History',
-                    selected: viewingHistory,
-                    onTap: () {
-                      setState(() => viewingHistory = true);
-                      if (history.isEmpty) _loadHistory();
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _bgGradient(
-            child: loading
-                ? const Center(child: CircularProgressIndicator(color: cBlue))
-                : err.isNotEmpty
-                ? Center(
-                    child: Text(
-                      'Error: $err',
-                      style: const TextStyle(color: cRed),
-                    ),
-                  )
-                : viewingHistory
-                ? (historyLoading
-                      ? const Center(
-                          child: CircularProgressIndicator(color: cBlue),
-                        )
-                      : RefreshIndicator(
-                          onRefresh: _loadHistory,
-                          color: cBlue,
-                          child: ListView(
-                            padding: const EdgeInsets.all(16),
-                            children: [
-                              if (history.isEmpty)
-                                const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(40),
-                                    child: Text(
-                                      'No past timesheets yet.',
-                                      style: TextStyle(
-                                        color: cMuted,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              else
-                                ...history.map(_buildHistoryCard),
-                            ],
-                          ),
-                        ))
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    color: cBlue,
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          if (submission != null) ...[
-                            _StatusBanner(submission: submission!),
-                            const SizedBox(height: 12),
-                          ],
-                          _buildWeekCard(1),
-                          const SizedBox(height: 12),
-                          _buildWeekCard(2),
-                          const SizedBox(height: 12),
-                          raisedCard(
-                            radius: 12,
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: _SummaryRow(
-                                label: 'Fortnight Grand Total',
-                                value: '${total.toStringAsFixed(1)} hrs',
-                                bold: true,
-                                valueColor: cBlue,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          if (!_isApproved)
-                            GestureDetector(
-                              onTap: _submit,
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF1E3A8A), cBlue],
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      _isSubmitted
-                                          ? Icons.refresh_rounded
-                                          : Icons.send_rounded,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _isSubmitted
-                                          ? 'Re-submit Timesheet'
-                                          : 'Submit to Manager',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          else
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              decoration: BoxDecoration(
-                                color: cGreenLight,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: cGreenBorder),
-                              ),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.lock_rounded,
-                                    color: cGreenText,
-                                    size: 16,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Approved & Locked',
-                                    style: TextStyle(
-                                      color: cGreenText,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 20),
-                        ],
-                      ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Management',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: cNavyLight,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  // Staff Members tile
+                  _ManagerTile(
+                    icon: Icons.people_alt_rounded,
+                    label: 'Staff Members',
+                    subtitle: 'View all staff profiles',
+                    gradient: [const Color(0xFF065F46), cGreen],
+                    shadowColor: const Color(0xFF064E3B),
+                    badge:
+                        '${widget.users.where((u) => u.role == 'Staff').length}',
+                    onTap: () => setState(() => subScreen = 'staff'),
+                  ),
+                  const SizedBox(height: 12),
+                  // Timesheets tile
+                  _ManagerTile(
+                    icon: Icons.receipt_long_rounded,
+                    label: 'Time Sheets',
+                    subtitle: 'Review & approve fortnightly timesheets',
+                    gradient: [const Color(0xFF1E3A8A), cBlue],
+                    shadowColor: const Color(0xFF1E3A5F),
+                    badge: null,
+                    onTap: () => setState(() => subScreen = 'timesheets'),
+                  ),
+                  const SizedBox(height: 20),
+                  StatCard(
+                    icon: Icons.check_circle_rounded,
+                    label: 'Checked In Today',
+                    value: 0,
+                  ),
+                  const SizedBox(height: 10),
+                  StatCard(
+                    icon: Icons.pending_actions_rounded,
+                    label: 'Pending Approvals',
+                    value: 0,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ],
     );
   }
-
-  Widget _buildHistoryCard(Map<String, dynamic> ts) {
-    final start = DateTime.tryParse(ts['fortnight_start'] ?? '');
-    final end = DateTime.tryParse(ts['fortnight_end'] ?? '');
-    final status = ts['status'] ?? 'pending';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: raisedCard(
-        radius: 12,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      start != null && end != null
-                          ? '${fmtDateShort(start)} – ${fmtDate(end)}'
-                          : '—',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: cText,
-                      ),
-                    ),
-                  ),
-                  StatusBadge(status),
-                ],
-              ),
-              const SizedBox(height: 8),
-              _SummaryRow(
-                label: 'Week 1',
-                value: '${(ts['week1_hours'] ?? 0).toStringAsFixed(1)} hrs',
-                bold: false,
-              ),
-              const SizedBox(height: 3),
-              _SummaryRow(
-                label: 'Week 2',
-                value: '${(ts['week2_hours'] ?? 0).toStringAsFixed(1)} hrs',
-                bold: false,
-              ),
-              const Divider(height: 12, color: cBorder),
-              _SummaryRow(
-                label: 'Total',
-                value: '${(ts['total_hours'] ?? 0).toStringAsFixed(1)} hrs',
-                bold: true,
-                valueColor: cBlue,
-              ),
-              if (status == 'rejected' &&
-                  (ts['manager_comment'] ?? '').isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFDECEA),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.info_outline, color: cRed, size: 13),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Manager: ${ts['manager_comment']}',
-                          style: const TextStyle(fontSize: 11, color: cRed),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-class _HeaderTab extends StatelessWidget {
-  final String label;
-  final bool selected;
+class _ManagerTile extends StatelessWidget {
+  final IconData icon;
+  final String label, subtitle;
+  final List<Color> gradient;
+  final Color shadowColor;
+  final String? badge;
   final VoidCallback onTap;
-  const _HeaderTab({
+  const _ManagerTile({
+    required this.icon,
     required this.label,
-    required this.selected,
+    required this.subtitle,
+    required this.gradient,
+    required this.shadowColor,
+    required this.badge,
     required this.onTap,
   });
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(
-        color: selected ? Colors.white : Colors.white24,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: selected ? cBlue : Colors.white70,
-        ),
-      ),
-    ),
-  );
-}
-
-class _StatusBanner extends StatelessWidget {
-  final Map<String, dynamic> submission;
-  const _StatusBanner({required this.submission});
-  @override
-  Widget build(BuildContext context) {
-    final status = submission['status'] ?? 'pending';
-    Color bg, fg;
-    IconData icon;
-    String msg;
-    switch (status) {
-      case 'approved':
-        bg = cGreenLight;
-        fg = cGreenText;
-        icon = Icons.check_circle_rounded;
-        msg =
-            'Approved${submission['approved_at'] != null ? ' on ${_fmtDT(submission['approved_at'])}' : ''}';
-        break;
-      case 'rejected':
-        bg = const Color(0xFFFDECEA);
-        fg = cRed;
-        icon = Icons.cancel_rounded;
-        msg =
-            'Rejected by manager${(submission['manager_comment'] ?? '').isNotEmpty ? ': ${submission['manager_comment']}' : ''}';
-        break;
-      case 'review':
-        bg = cVioletLight;
-        fg = cVioletText;
-        icon = Icons.visibility_rounded;
-        msg = 'Under review by manager';
-        break;
-      default:
-        bg = cAmberLight;
-        fg = cAmberText;
-        icon = Icons.hourglass_empty_rounded;
-        msg = 'Submitted – awaiting manager approval';
-    }
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: fg.withOpacity(0.3)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: fg, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              msg,
-              style: TextStyle(
-                color: fg,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
-              ),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: gradient,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: gradient.last.withOpacity(0.45),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 0,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Icon(icon, color: Colors.white, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (badge != null)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    badge!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white54,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
-// ─── SHIFT HISTORY ─────────────────────────────────────────
-class ShiftHistoryScreen extends StatefulWidget {
-  final AppUser user;
-  final VoidCallback onBack;
-  final VoidCallback onLogout;
-
-  const ShiftHistoryScreen({
-    super.key,
-    required this.user,
+// ─── STAFF MEMBERS SCREEN (Manager) ───────────────────────
+class _StaffMembersScreen extends StatelessWidget {
+  final List<AppUser> users;
+  final VoidCallback onBack, onLogout;
+  const _StaffMembersScreen({
+    required this.users,
     required this.onBack,
     required this.onLogout,
   });
-
-  @override
-  State<ShiftHistoryScreen> createState() => _ShiftHistoryScreenState();
-}
-
-class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
-  List<Map<String, dynamic>> records = [];
-  bool loading = true;
-  String err = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final r = await SupabaseService.getUserRecords(widget.user.email);
-
-      if (mounted) {
-        setState(() {
-          records = r;
-          loading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          err = e.toString();
-          loading = false;
-        });
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final staff = users.where((u) => u.role == 'Staff').toList();
     return Column(
       children: [
-        AppHeader(onLogout: widget.onLogout),
-
+        AppHeader(onLogout: onLogout),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF4A1D96), cPurple],
+              colors: [Color(0xFF065F46), cGreen],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -4932,7 +4591,7 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GestureDetector(
-                onTap: widget.onBack,
+                onTap: onBack,
                 child: const Row(
                   children: [
                     Icon(
@@ -4954,262 +4613,101 @@ class _ShiftHistoryScreenState extends State<ShiftHistoryScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'My Shift History',
+                'Staff Members',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
                   fontSize: 22,
                 ),
               ),
-              const Text(
-                'All your clock-in records',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
+              Text(
+                '${staff.length} staff registered',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ],
           ),
         ),
-
         Expanded(
           child: _bgGradient(
-            child: loading
-                ? const Center(child: CircularProgressIndicator(color: cPurple))
-                : err.isNotEmpty
-                ? Center(
-                    child: Text(
-                      'Error: $err',
-                      style: const TextStyle(color: cRed),
-                    ),
-                  )
-                : records.isEmpty
+            child: staff.isEmpty
                 ? const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.history_rounded, color: cMuted, size: 48),
-                        SizedBox(height: 12),
-                        Text(
-                          'No shift records yet.',
-                          style: TextStyle(
-                            color: cMuted,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'No staff members yet.',
+                      style: TextStyle(color: cMuted, fontSize: 14),
                     ),
                   )
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    color: cPurple,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: records.length,
-                      itemBuilder: (ctx, i) {
-                        final d = records[i];
-                        final isActive = d['shift_status'] == 'active';
-                        final photoUrl = d['photo_url'] as String?;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: raisedCard(
-                            radius: 14,
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isActive
-                                              ? cGreenLight
-                                              : cSlate,
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                          border: Border.all(
-                                            color: isActive
-                                                ? cGreenBorder
-                                                : cBorder,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          isActive ? '● Active' : '✓ Completed',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w700,
-                                            color: isActive
-                                                ? cGreenText
-                                                : cMuted,
-                                          ),
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      Text(
-                                        d['branch_name'] ?? '',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: cMuted,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: staff.length,
+                    itemBuilder: (_, i) {
+                      final u = staff[i];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: raisedCard(
+                          radius: 12,
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF065F46), cGreen],
+                                    ),
+                                    borderRadius: BorderRadius.circular(22),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: cGreen.withOpacity(0.35),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
-
-                                  const SizedBox(height: 10),
-
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.login_rounded,
-                                        color: cGreen,
-                                        size: 14,
+                                  child: Center(
+                                    child: Text(
+                                      u.name[0].toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 18,
                                       ),
-                                      const SizedBox(width: 6),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
                                       Text(
-                                        'In: ${_fmtDT(d['clock_in_time'])}',
+                                        u.name,
                                         style: const TextStyle(
-                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
                                           color: cText,
                                         ),
                                       ),
+                                      Text(
+                                        u.email,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: cMuted,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      RoleBadge(u.role),
                                     ],
                                   ),
-
-                                  const SizedBox(height: 4),
-
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.logout_rounded,
-                                        color: cRed,
-                                        size: 14,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          d['clock_out_time'] != null
-                                              ? 'Out: ${_fmtDT(d['clock_out_time'])}'
-                                              : 'Out: Not clocked out yet',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: d['clock_out_time'] != null
-                                                ? cText
-                                                : cMuted,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  if (d['shift_hours'] != null) ...[
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.access_time_rounded,
-                                          color: cBlue,
-                                          size: 14,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Total: ${(d['shift_hours'] as num).toStringAsFixed(1)} hrs',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: cBlue,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-
-                                  if (photoUrl != null) ...[
-                                    const SizedBox(height: 10),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.network(
-                                        photoUrl,
-                                        height: 100,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        loadingBuilder: (_, child, progress) {
-                                          if (progress == null) {
-                                            return child;
-                                          }
-
-                                          return Container(
-                                            height: 100,
-                                            color: cSlate,
-                                            child: const Center(
-                                              child: CircularProgressIndicator(
-                                                color: cPurple,
-                                                strokeWidth: 2,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                        errorBuilder: (_, __, ___) {
-                                          return Container(
-                                            height: 50,
-                                            color: cSlate,
-                                            child: const Center(
-                                              child: Icon(
-                                                Icons.broken_image_rounded,
-                                                color: cMuted,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
-
-                                  if (d['shift_notes'] != null &&
-                                      (d['shift_notes'] as String)
-                                          .isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: cSlate,
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Icon(
-                                            Icons.notes_rounded,
-                                            color: cMuted,
-                                            size: 13,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Expanded(
-                                            child: Text(
-                                              d['shift_notes'],
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: cNavyMid,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
           ),
         ),
@@ -5251,6 +4749,7 @@ class _ManagerTimesheetsScreenState extends State<_ManagerTimesheetsScreen> {
     setState(() => loading = true);
     try {
       final s = await SupabaseService.getAllSubmissionsForFortnight(fnStart);
+      // Sort: review first, then pending, then rejected, then approved
       s.sort((a, b) {
         const order = {'review': 0, 'pending': 1, 'rejected': 2, 'approved': 3};
         return (order[a['status']] ?? 4).compareTo(order[b['status']] ?? 4);
@@ -5346,9 +4845,8 @@ class _ManagerTimesheetsScreenState extends State<_ManagerTimesheetsScreen> {
                                 color: selectedStatus == s ? cNavyMid : cSlate,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: selectedStatus == s
-                                      ? cNavyMid
-                                      : cBorder,
+                                  color:
+                                      selectedStatus == s ? cNavyMid : cBorder,
                                 ),
                               ),
                               child: Text(
@@ -5421,358 +4919,836 @@ class _ManagerTimesheetsScreenState extends State<_ManagerTimesheetsScreen> {
 
   @override
   Widget build(BuildContext context) => Column(
-    children: [
-      AppHeader(onLogout: widget.onLogout),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF1E3A8A), cBlue],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            GestureDetector(
-              onTap: widget.onBack,
-              child: const Row(
-                children: [
-                  Icon(
-                    Icons.arrow_back_ios_rounded,
-                    color: Colors.white70,
-                    size: 14,
+        children: [
+          AppHeader(onLogout: widget.onLogout),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF1E3A8A), cBlue],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: widget.onBack,
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.arrow_back_ios_rounded,
+                        color: Colors.white70,
+                        size: 14,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Back',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(width: 4),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Time Sheets',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                  ),
+                ),
+                Text(
+                  '${fmtDateShort(fnStart)} – ${fmtDate(fnEnd)} · ${submissions.length} submitted',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _bgGradient(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator(color: cBlue))
+                  : err.isNotEmpty
+                      ? Center(
+                          child: Text(
+                            'Error: $err',
+                            style: const TextStyle(color: cRed),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          color: cBlue,
+                          child: submissions.isEmpty
+                              ? const Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.inbox_rounded,
+                                        color: cMuted,
+                                        size: 48,
+                                      ),
+                                      SizedBox(height: 12),
+                                      Text(
+                                        'No timesheets submitted yet.',
+                                        style: TextStyle(
+                                          color: cMuted,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: submissions.length,
+                                  itemBuilder: (_, i) {
+                                    final ts = submissions[i];
+                                    final status = ts['status'] ?? 'pending';
+                                    final isExpanded = expandedId == ts['id'];
+                                    final totalHrs = (ts['total_hours'] as num?)
+                                            ?.toDouble() ??
+                                        0;
+                                    final isAnomaly = totalHrs > 90;
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      child: raisedCard(
+                                        radius: 14,
+                                        child: Column(
+                                          children: [
+                                            // Main row
+                                            InkWell(
+                                              onTap: () => setState(
+                                                () => expandedId = isExpanded
+                                                    ? null
+                                                    : ts['id'],
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.all(14),
+                                                child: Row(
+                                                  children: [
+                                                    // Avatar + photo placeholder
+                                                    Container(
+                                                      width: 44,
+                                                      height: 44,
+                                                      decoration: BoxDecoration(
+                                                        gradient:
+                                                            const LinearGradient(
+                                                          colors: [
+                                                            Color(0xFF1E3A8A),
+                                                            cBlue,
+                                                          ],
+                                                        ),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(22),
+                                                      ),
+                                                      child: Center(
+                                                        child: Text(
+                                                          (ts['user_name'] ??
+                                                                  '?')[0]
+                                                              .toUpperCase(),
+                                                          style:
+                                                              const TextStyle(
+                                                            color: Colors.white,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            fontSize: 18,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 12),
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Row(
+                                                            children: [
+                                                              Expanded(
+                                                                child: Text(
+                                                                  ts['user_name'] ??
+                                                                      'Unknown',
+                                                                  style:
+                                                                      const TextStyle(
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w700,
+                                                                    fontSize:
+                                                                        14,
+                                                                    color:
+                                                                        cText,
+                                                                  ),
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
+                                                                ),
+                                                              ),
+                                                              if (isAnomaly)
+                                                                const Padding(
+                                                                  padding:
+                                                                      EdgeInsets
+                                                                          .only(
+                                                                    left: 4,
+                                                                  ),
+                                                                  child: Icon(
+                                                                    Icons
+                                                                        .warning_amber_rounded,
+                                                                    color:
+                                                                        cOrange,
+                                                                    size: 14,
+                                                                  ),
+                                                                ),
+                                                            ],
+                                                          ),
+                                                          const SizedBox(
+                                                              height: 2),
+                                                          Text(
+                                                            '${totalHrs.toStringAsFixed(1)} hrs · Submitted ${_fmtDT(ts['submitted_at'])}',
+                                                            style:
+                                                                const TextStyle(
+                                                              fontSize: 11,
+                                                              color: cMuted,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                              height: 4),
+                                                          StatusBadge(status),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Icon(
+                                                      isExpanded
+                                                          ? Icons.expand_less
+                                                          : Icons.expand_more,
+                                                      color: cMuted,
+                                                      size: 20,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                            // Expanded detail
+                                            if (isExpanded)
+                                              Padding(
+                                                padding:
+                                                    const EdgeInsets.fromLTRB(
+                                                  14,
+                                                  0,
+                                                  14,
+                                                  14,
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Divider(
+                                                      height: 1,
+                                                      color: cBorder,
+                                                    ),
+                                                    const SizedBox(height: 12),
+                                                    raisedCard(
+                                                      child: Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .all(
+                                                          12,
+                                                        ),
+                                                        child: Column(
+                                                          children: [
+                                                            _SummaryRow(
+                                                              label: 'Week 1',
+                                                              value:
+                                                                  '${(ts['week1_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs',
+                                                              bold: false,
+                                                            ),
+                                                            const SizedBox(
+                                                                height: 6),
+                                                            _SummaryRow(
+                                                              label: 'Week 2',
+                                                              value:
+                                                                  '${(ts['week2_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs',
+                                                              bold: false,
+                                                            ),
+                                                            const Divider(
+                                                              height: 16,
+                                                              color: cBorder,
+                                                            ),
+                                                            _SummaryRow(
+                                                              label: 'Total',
+                                                              value:
+                                                                  '${totalHrs.toStringAsFixed(1)} hrs',
+                                                              bold: true,
+                                                              valueColor:
+                                                                  isAnomaly
+                                                                      ? cOrange
+                                                                      : cBlue,
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    if (isAnomaly) ...[
+                                                      const SizedBox(height: 8),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .all(
+                                                          8,
+                                                        ),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: cAmberLight,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(6),
+                                                        ),
+                                                        child: const Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons
+                                                                  .warning_amber_rounded,
+                                                              color: cAmber,
+                                                              size: 14,
+                                                            ),
+                                                            SizedBox(width: 6),
+                                                            Expanded(
+                                                              child: Text(
+                                                                'Hours exceed standard 80 hrs/fortnight. Please review.',
+                                                                style:
+                                                                    TextStyle(
+                                                                  fontSize: 11,
+                                                                  color:
+                                                                      cAmberText,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    if ((ts['manager_comment'] ??
+                                                            '')
+                                                        .isNotEmpty) ...[
+                                                      const SizedBox(height: 8),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .all(
+                                                          8,
+                                                        ),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: cSlate,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(6),
+                                                        ),
+                                                        child: Row(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            const Icon(
+                                                              Icons
+                                                                  .comment_rounded,
+                                                              color: cMuted,
+                                                              size: 13,
+                                                            ),
+                                                            const SizedBox(
+                                                                width: 6),
+                                                            Expanded(
+                                                              child: Text(
+                                                                ts['manager_comment'],
+                                                                style:
+                                                                    const TextStyle(
+                                                                  fontSize: 11,
+                                                                  color:
+                                                                      cNavyMid,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    const SizedBox(height: 10),
+                                                    Row(
+                                                      children: [
+                                                        Expanded(
+                                                          child:
+                                                              GestureDetector(
+                                                            onTap: () =>
+                                                                _showReviewDialog(
+                                                                    ts),
+                                                            child: Container(
+                                                              padding:
+                                                                  const EdgeInsets
+                                                                      .symmetric(
+                                                                vertical: 10,
+                                                              ),
+                                                              decoration:
+                                                                  BoxDecoration(
+                                                                gradient:
+                                                                    const LinearGradient(
+                                                                  colors: [
+                                                                    cNavyMid,
+                                                                    cNavy,
+                                                                  ],
+                                                                ),
+                                                                borderRadius:
+                                                                    BorderRadius
+                                                                        .circular(
+                                                                  8,
+                                                                ),
+                                                              ),
+                                                              child: const Row(
+                                                                mainAxisAlignment:
+                                                                    MainAxisAlignment
+                                                                        .center,
+                                                                children: [
+                                                                  Icon(
+                                                                    Icons
+                                                                        .rate_review_rounded,
+                                                                    color: Colors
+                                                                        .white,
+                                                                    size: 14,
+                                                                  ),
+                                                                  SizedBox(
+                                                                      width: 6),
+                                                                  Text(
+                                                                    'Review',
+                                                                    style:
+                                                                        TextStyle(
+                                                                      color: Colors
+                                                                          .white,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w700,
+                                                                      fontSize:
+                                                                          12,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 8),
+                                                        Expanded(
+                                                          child:
+                                                              GestureDetector(
+                                                            onTap: () =>
+                                                                _savePayroll(
+                                                                    ts),
+                                                            child: Container(
+                                                              padding:
+                                                                  const EdgeInsets
+                                                                      .symmetric(
+                                                                vertical: 10,
+                                                              ),
+                                                              decoration:
+                                                                  BoxDecoration(
+                                                                gradient:
+                                                                    const LinearGradient(
+                                                                  colors: [
+                                                                    Color(
+                                                                      0xFF065F46,
+                                                                    ),
+                                                                    cGreen,
+                                                                  ],
+                                                                ),
+                                                                borderRadius:
+                                                                    BorderRadius
+                                                                        .circular(
+                                                                  8,
+                                                                ),
+                                                              ),
+                                                              child: const Row(
+                                                                mainAxisAlignment:
+                                                                    MainAxisAlignment
+                                                                        .center,
+                                                                children: [
+                                                                  Icon(
+                                                                    Icons
+                                                                        .save_rounded,
+                                                                    color: Colors
+                                                                        .white,
+                                                                    size: 14,
+                                                                  ),
+                                                                  SizedBox(
+                                                                      width: 6),
+                                                                  Text(
+                                                                    'Save Payroll',
+                                                                    style:
+                                                                        TextStyle(
+                                                                      color: Colors
+                                                                          .white,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w700,
+                                                                      fontSize:
+                                                                          12,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+            ),
+          ),
+        ],
+      );
+}
+
+// ─── ADMIN HOME ────────────────────────────────────────────
+class AdminHome extends StatefulWidget {
+  final AppUser user;
+  final List<AppUser> users;
+  final void Function(AppUser) onAddUser;
+  final VoidCallback onLogout;
+  const AdminHome({
+    super.key,
+    required this.user,
+    required this.users,
+    required this.onAddUser,
+    required this.onLogout,
+  });
+  @override
+  State<AdminHome> createState() => _AdminHomeState();
+}
+
+class _AdminHomeState extends State<AdminHome> {
+  bool adding = false;
+  final nCtrl = TextEditingController(),
+      eCtrl = TextEditingController(),
+      pCtrl = TextEditingController();
+  String role = 'Staff', formErr = '', successMsg = '';
+  void _add() {
+    if (nCtrl.text.trim().isEmpty) {
+      setState(() => formErr = 'Name is required.');
+      return;
+    }
+    if (!RegExp(r'^[\w.-]+@[\w.-]+\.\w+$').hasMatch(eCtrl.text.trim())) {
+      setState(() => formErr = 'Valid email is required.');
+      return;
+    }
+    if (pCtrl.text.length < 8) {
+      setState(() => formErr = 'Password must be at least 8 characters.');
+      return;
+    }
+    widget.onAddUser(
+      AppUser(
+        id: DateTime.now().millisecondsSinceEpoch,
+        name: nCtrl.text.trim(),
+        email: eCtrl.text.trim(),
+        password: pCtrl.text,
+        role: role,
+      ),
+    );
+    nCtrl.clear();
+    eCtrl.clear();
+    pCtrl.clear();
+    setState(() {
+      formErr = '';
+      successMsg = 'User added successfully!';
+      adding = false;
+    });
+  }
+
+  Widget _miniStat(IconData icon, String label, int value, Color iconColor) =>
+      raisedCard(
+        radius: 10,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor, size: 18),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    'Back',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                    '$value',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: cNavyMid,
                     ),
+                  ),
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 10, color: cMuted),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Time Sheets',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 22,
+            ],
+          ),
+        ),
+      );
+  @override
+  Widget build(BuildContext context) {
+    if (adding)
+      return Column(
+        children: [
+          AppHeader(onLogout: widget.onLogout),
+          Expanded(
+            child: _bgGradient(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => setState(() {
+                        adding = false;
+                        formErr = '';
+                      }),
+                      icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                      label: const Text(
+                        'Back',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: cPurple,
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Add New User',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                        color: cText,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const InputLabel('Full Name'),
+                    StyledInput(hint: 'Full name', ctrl: nCtrl),
+                    const InputLabel('Email'),
+                    StyledInput(
+                      hint: 'Email address',
+                      ctrl: eCtrl,
+                      keyboard: TextInputType.emailAddress,
+                    ),
+                    const InputLabel('Password'),
+                    StyledInput(
+                      hint: 'Min 8 characters',
+                      ctrl: pCtrl,
+                      obscure: true,
+                    ),
+                    const InputLabel('Role'),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: cBorder),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cNavy.withOpacity(0.06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: role,
+                          isExpanded: true,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          items: ['Staff', 'Manager', 'Admin']
+                              .map(
+                                (r) => DropdownMenuItem(
+                                  value: r,
+                                  child: Text(
+                                    r,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) => setState(() => role = v!),
+                        ),
+                      ),
+                    ),
+                    if (formErr.isNotEmpty) ErrorBox(formErr),
+                    const SizedBox(height: 4),
+                    PrimaryButton(
+                      label: 'Add User',
+                      onTap: _add,
+                      colors: [cPurple, const Color(0xFF4F46E5)],
+                      shadowColor: const Color(0xFF3730A3),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Text(
-              '${fmtDateShort(fnStart)} – ${fmtDate(fnEnd)} · ${submissions.length} submitted',
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-          ],
-        ),
-      ),
-      Expanded(
-        child: _bgGradient(
-          child: loading
-              ? const Center(child: CircularProgressIndicator(color: cBlue))
-              : err.isNotEmpty
-              ? Center(
-                  child: Text(
-                    'Error: $err',
-                    style: const TextStyle(color: cRed),
+          ),
+        ],
+      );
+    return Column(
+      children: [
+        AppHeader(onLogout: widget.onLogout),
+        Expanded(
+          child: _bgGradient(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RoleBadge(widget.user.role),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Hi, ${widget.user.name} 👋',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      color: cText,
+                    ),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  color: cBlue,
-                  child: submissions.isEmpty
-                      ? const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.inbox_rounded,
-                                color: cMuted,
-                                size: 48,
-                              ),
-                              SizedBox(height: 12),
-                              Text(
-                                'No timesheets submitted yet.',
-                                style: TextStyle(
-                                  color: cMuted,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: submissions.length,
-                          itemBuilder: (_, i) {
-                            final ts = submissions[i];
-                            final status = ts['status'] ?? 'pending';
-                            final isExpanded = expandedId == ts['id'];
-                            final totalHrs =
-                                (ts['total_hours'] as num?)?.toDouble() ?? 0;
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: raisedCard(
-                                radius: 14,
-                                child: Column(
-                                  children: [
-                                    InkWell(
-                                      onTap: () => setState(
-                                        () => expandedId = isExpanded
-                                            ? null
-                                            : ts['id'],
-                                      ),
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(14),
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              width: 44,
-                                              height: 44,
-                                              decoration: BoxDecoration(
-                                                gradient: const LinearGradient(
-                                                  colors: [
-                                                    Color(0xFF1E3A8A),
-                                                    cBlue,
-                                                  ],
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(22),
-                                              ),
-                                              child: Center(
-                                                child: Text(
-                                                  (ts['user_name'] ?? '?')[0]
-                                                      .toUpperCase(),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 18,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    ts['user_name'] ??
-                                                        'Unknown',
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      fontSize: 14,
-                                                      color: cText,
-                                                    ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                  Text(
-                                                    '${totalHrs.toStringAsFixed(1)} hrs · Submitted ${_fmtDT(ts['submitted_at'])}',
-                                                    style: const TextStyle(
-                                                      fontSize: 11,
-                                                      color: cMuted,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  StatusBadge(status),
-                                                ],
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Icon(
-                                              isExpanded
-                                                  ? Icons.expand_less
-                                                  : Icons.expand_more,
-                                              color: cMuted,
-                                              size: 20,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    if (isExpanded)
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                          14,
-                                          0,
-                                          14,
-                                          14,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Divider(
-                                              height: 1,
-                                              color: cBorder,
-                                            ),
-                                            const SizedBox(height: 12),
-                                            raisedCard(
-                                              child: Padding(
-                                                padding: const EdgeInsets.all(
-                                                  12,
-                                                ),
-                                                child: Column(
-                                                  children: [
-                                                    _SummaryRow(
-                                                      label: 'Week 1',
-                                                      value:
-                                                          '${(ts['week1_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs',
-                                                      bold: false,
-                                                    ),
-                                                    const SizedBox(height: 6),
-                                                    _SummaryRow(
-                                                      label: 'Week 2',
-                                                      value:
-                                                          '${(ts['week2_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs',
-                                                      bold: false,
-                                                    ),
-                                                    const Divider(
-                                                      height: 16,
-                                                      color: cBorder,
-                                                    ),
-                                                    _SummaryRow(
-                                                      label: 'Total',
-                                                      value:
-                                                          '${totalHrs.toStringAsFixed(1)} hrs',
-                                                      bold: true,
-                                                      valueColor: cBlue,
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 10),
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: GestureDetector(
-                                                    onTap: () =>
-                                                        _showReviewDialog(ts),
-                                                    child: Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            vertical: 10,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        gradient:
-                                                            const LinearGradient(
-                                                              colors: [
-                                                                cNavyMid,
-                                                                cNavy,
-                                                              ],
-                                                            ),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              8,
-                                                            ),
-                                                      ),
-                                                      child: const Row(
-                                                        mainAxisAlignment:
-                                                            MainAxisAlignment
-                                                                .center,
-                                                        children: [
-                                                          Icon(
-                                                            Icons
-                                                                .rate_review_rounded,
-                                                            color: Colors.white,
-                                                            size: 14,
-                                                          ),
-                                                          SizedBox(width: 6),
-                                                          Text(
-                                                            'Review',
-                                                            style: TextStyle(
-                                                              color:
-                                                                  Colors.white,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                              fontSize: 12,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: GestureDetector(
-                                                    onTap: () =>
-                                                        _savePayroll(ts),
-                                                    child: Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            vertical: 10,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        gradient:
-                                                            const LinearGradient(
-                                                              colors: [
-                                                                Color(
-                                                                  0xFF065F46,
-                                                                ),
-                                                                cGreen,
-                                                              ],
-                                                            ),
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              8,
-                                                            ),
-                                                      ),
-                                                      child: const Row(
-                                                        mainAxisAlignment:
-                                                            MainAxisAlignment
-                                                                .center,
-                                                        children: [
-                                                          Icon(
-                                                            Icons.save_rounded,
-                                                            color: Colors.white,
-                                                            size: 14,
-                                                          ),
-                                                          SizedBox(width: 6),
-                                                          Text(
-                                                            'Save Payroll',
-                                                            style: TextStyle(
-                                                              color:
-                                                                  Colors.white,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                              fontSize: 12,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
+                  Text(
+                    widget.user.email,
+                    style: const TextStyle(fontSize: 12, color: cMuted),
+                  ),
+                  const SizedBox(height: 16),
+                  if (successMsg.isNotEmpty) SuccessBox(successMsg),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 2.4,
+                    children: [
+                      _miniStat(
+                        Icons.shield_rounded,
+                        'Admins',
+                        widget.users.where((u) => u.role == 'Admin').length,
+                        const Color(0xFFD97706),
+                      ),
+                      _miniStat(
+                        Icons.work_rounded,
+                        'Managers',
+                        widget.users.where((u) => u.role == 'Manager').length,
+                        cPurple,
+                      ),
+                      _miniStat(
+                        Icons.engineering_rounded,
+                        'Staff',
+                        widget.users.where((u) => u.role == 'Staff').length,
+                        cGreen,
+                      ),
+                      _miniStat(
+                        Icons.people_alt_rounded,
+                        'Total',
+                        widget.users.length,
+                        cIndigo,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      adding = true;
+                      successMsg = '';
+                    }),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [cPurple, Color(0xFF4F46E5)],
                         ),
-                ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cPurple.withOpacity(0.4),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                          const BoxShadow(
+                            color: Color(0xFF3730A3),
+                            blurRadius: 0,
+                            offset: Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.person_add_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Add New User',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'All Users (${widget.users.length})',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: cNavyMid,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...widget.users.map((u) => UserRow(u: u, showRole: true)),
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
